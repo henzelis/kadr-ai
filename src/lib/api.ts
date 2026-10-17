@@ -6,9 +6,10 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { DEMO_DESTINATION, DEMO_SOURCE, demoMedia } from "./demo";
-import { formatShortDate } from "./format";
+import { demoDestination, formatShortDate } from "./format";
 import { t } from "./i18n";
 import type {
+  OperationMode, PlanFilter, PlanPage, PlanRow, PlanSummary, RunFailure, RunProgress, RunSummary,
   AppError, AppSettings, Folders, GeobaseInfo, LibrarySummary, MediaPage, MediaQuery, MediaView,
   ScanProgress, ScanReport, ScanStatus, SectionCounts, ToolStatus,
 } from "./types";
@@ -16,6 +17,7 @@ import type {
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const browserDefaults: AppSettings = {
+  folder_language: null,
   destination_root: DEMO_DESTINATION,
   folder_template: "{year}/{month}/{place}/{filename}",
   month_format: "number_name",
@@ -254,4 +256,114 @@ export async function getSectionCounts(): Promise<SectionCounts> {
     };
   }
   return invoke<SectionCounts>("get_section_counts");
+}
+
+// ---------------------------------------------------------------- plan & runs
+
+let demoPlan: { summary: PlanSummary; rows: PlanRow[] } | null = null;
+
+function demoBuild(mode: OperationMode): PlanSummary {
+  const rows: PlanRow[] = demoAll.slice(0, 200).map((m, i) => {
+    const dup = m.sha256 ? demoAll.slice(0, i).some((o) => o.sha256 === m.sha256) : false;
+    return {
+      id: i + 1, media_id: m.id, source: m.path,
+      destination: demoDestination(m, browserSettings, browserSettings.destination_root ?? "E:\\Archive"),
+      size: m.size_bytes, captured_local: m.captured?.local ?? null, place: m.place_label,
+      status: dup ? "duplicate" : "ready", included: !dup, item_status: dup ? "excluded" : "planned",
+      notes: [
+        ...(dup ? [{ code: "plan_duplicate", args: { path: demoAll.find((o) => o.sha256 === m.sha256)?.path ?? "" } }] : []),
+        ...(m.captured ? [] : [{ code: "plan_no_date" }]),
+        ...(m.place_label ? [] : [{ code: "plan_no_place" }]),
+      ],
+      companions: m.companions.map((c) => ({ id: c.id, file_name: c.file_name, destination: c.file_name, role: c.role })),
+    };
+  });
+  const inc = rows.filter((r) => r.included);
+  demoPlan = {
+    rows,
+    summary: {
+      id: 1, created_at: Date.now(), destination_root: browserSettings.destination_root ?? "", mode, state: "draft",
+      ready: inc.length, conflicts: 0, already_archived: 0, already_in_place: 0,
+      duplicates: rows.length - inc.length, included_files: inc.length + inc.reduce((a, r) => a + r.companions.length, 0),
+      included_bytes: inc.reduce((a, r) => a + r.size, 0),
+      no_date: rows.filter((r) => !r.captured_local).length, no_place: rows.filter((r) => !r.place).length,
+    },
+  };
+  return demoPlan.summary;
+}
+
+export async function buildSortPlan(mode: OperationMode): Promise<PlanSummary> {
+  if (!inTauri) return demoBuild(mode);
+  return invoke<PlanSummary>("build_sort_plan", { mode });
+}
+
+export async function getPlanSummary(planId?: number): Promise<PlanSummary | null> {
+  if (!inTauri) return demoPlan?.summary ?? null;
+  return invoke<PlanSummary | null>("get_plan_summary", { planId: planId ?? null });
+}
+
+export async function getPlanItems(planId: number, filter: PlanFilter, search: string, offset: number, limit: number): Promise<PlanPage> {
+  if (!inTauri) {
+    const rows = (demoPlan?.rows ?? []).filter((r) =>
+      (filter === "all" || (filter === "included" && r.included) || (filter === "excluded" && !r.included)
+        || (filter === "attention" && (r.status !== "ready" || !r.captured_local || !r.place)))
+      && (!search || `${r.source} ${r.destination}`.toLowerCase().includes(search.toLowerCase())));
+    return { items: rows.slice(offset, offset + limit), total: rows.length };
+  }
+  return invoke<PlanPage>("get_plan_items", { planId, filter, search, offset, limit });
+}
+
+export async function setPlanIncluded(planId: number, itemIds: number[], included: boolean): Promise<PlanSummary | null> {
+  if (!inTauri) {
+    demoPlan?.rows.forEach((r) => { if (itemIds.includes(r.id)) r.included = included; });
+    return demoPlan?.summary ?? null;
+  }
+  return invoke<PlanSummary | null>("set_plan_included", { planId, itemIds, included });
+}
+
+export async function setPlanMode(planId: number, mode: OperationMode): Promise<PlanSummary | null> {
+  if (!inTauri) {
+    if (demoPlan) demoPlan.summary.mode = mode;
+    return demoPlan?.summary ?? null;
+  }
+  return invoke<PlanSummary | null>("set_plan_mode", { planId, mode });
+}
+
+export async function applySortPlan(planId: number, mode: OperationMode, files: number): Promise<void> {
+  if (!inTauri) throw { code: "generic", field: null } satisfies AppError;
+  await invoke("apply_sort_plan", { planId, confirmation: { mode, files } });
+}
+
+export async function undoSortPlan(planId: number): Promise<void> {
+  if (!inTauri) return;
+  await invoke("undo_sort_plan", { planId });
+}
+
+export async function cancelRun(): Promise<void> {
+  if (!inTauri) return;
+  await invoke("cancel_run");
+}
+
+export async function getRunLog(): Promise<{ running: boolean; runs: RunSummary[] }> {
+  if (!inTauri) return { running: false, runs: [] };
+  return invoke("get_run_log");
+}
+
+export async function getRunFailures(planId: number): Promise<RunFailure[]> {
+  if (!inTauri) return [];
+  return invoke<RunFailure[]>("get_run_failures", { planId });
+}
+
+export async function onRunEvents(handlers: {
+  progress: (p: RunProgress) => void;
+  finished: (kind: "apply" | "undo", p: RunProgress) => void;
+  failed: (e: AppError) => void;
+}): Promise<UnlistenFn> {
+  if (!inTauri) return () => {};
+  const offs = await Promise.all([
+    listen<RunProgress>("run-progress", (e) => handlers.progress(e.payload)),
+    listen<{ kind: "apply" | "undo"; progress: RunProgress }>("run-finished", (e) => handlers.finished(e.payload.kind, e.payload.progress)),
+    listen<AppError>("run-failed", (e) => handlers.failed(e.payload)),
+  ]);
+  return () => offs.forEach((off) => off());
 }

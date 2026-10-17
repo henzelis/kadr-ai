@@ -14,6 +14,16 @@
   // Edit a copy taken once on open; stored settings change only after Rust accepts them.
   // svelte-ignore state_referenced_locally
   let draft: AppSettings = $state(structuredClone($state.snapshot(settings)));
+  // Built-in folder names follow the folder language; typed ones stay.
+  const DEFAULTS = {
+    date: { uk: "Невідома дата", en: "Unknown date" },
+    place: { uk: "Без геолокації", en: "No location" },
+  };
+  $effect(() => {
+    const l = draft.folder_language ?? "uk";
+    if (Object.values(DEFAULTS.date).includes(draft.unknown_date_label)) draft.unknown_date_label = DEFAULTS.date[l];
+    if (Object.values(DEFAULTS.place).includes(draft.unknown_place_label)) draft.unknown_place_label = DEFAULTS.place[l];
+  });
   let tools = $state<ToolStatus[] | null>(null);
   const initialLang = storedLangChoice();
   let langChoice = $state(initialLang);
@@ -102,9 +112,15 @@
       <div class="grid">
         <label class="row">{t.settingsDialog.monthFormat}
           <select bind:value={draft.month_format}>
-            <option value="number_name">{monthFolder("number_name", 8)}</option>
+            <option value="number_name">{monthFolder("number_name", 8, draft.folder_language ?? undefined)}</option>
             <option value="number">08</option>
-            <option value="name">{monthFolder("name", 8)}</option>
+            <option value="name">{monthFolder("name", 8, draft.folder_language ?? undefined)}</option>
+          </select>
+        </label>
+        <label class="row">{t.folderLanguage}
+          <select bind:value={draft.folder_language}>
+            <option value="uk">Українська (Серпень, Невідома дата, Київ)</option>
+            <option value="en">English (August, Unknown date, Kyiv)</option>
           </select>
         </label>
         <label class="row">{t.settingsDialog.granularity}

@@ -21,6 +21,8 @@ pub struct AppState {
     /// Background jobs open their own connection to this file (WAL mode).
     pub db_path: PathBuf,
     pub scan: Mutex<Option<RunningScan>>,
+    /// A plan being applied or undone (only one at a time).
+    pub run: Mutex<Option<RunningScan>>,
     pub last_progress: Mutex<Option<ScanProgress>>,
     /// Loaded offline geobase, if one is installed.
     pub geocoder: RwLock<Option<Arc<OfflineGeocoder>>>,
@@ -66,6 +68,7 @@ impl AppState {
             db: Mutex::new(db),
             db_path,
             scan: Mutex::new(None),
+            run: Mutex::new(None),
             last_progress: Mutex::new(None),
             geocoder: RwLock::new(geocoder.map(Arc::new)),
             geobase_path,

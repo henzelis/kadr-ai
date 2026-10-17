@@ -1,23 +1,23 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import {
-    cancelScan, errorMessage, getFolders, getLibrarySummary, getScanStatus, getSectionCounts, getSettings,
+    cancelScan, errorMessage, onRunEvents, getRunLog, getFolders, getLibrarySummary, getScanStatus, getSectionCounts, getSettings,
     inTauri, onScanEvents, pickDestinationFolder, pickSourceFolders, removeSourceRoot, startScan,
     updateSettings,
   } from "$lib/api";
   import Gallery from "$lib/components/Gallery.svelte";
   import Inspector from "$lib/components/Inspector.svelte";
-  import PlanPreview from "$lib/components/PlanPreview.svelte";
+  import PlanView from "$lib/components/PlanView.svelte";
+  import RunLog from "$lib/components/RunLog.svelte";
   import ScanReportDialog from "$lib/components/ScanReportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import Sidebar, { type Section } from "$lib/components/Sidebar.svelte";
   import Titlebar from "$lib/components/Titlebar.svelte";
-  import { demoMedia } from "$lib/demo";
   import { demoDestination, formatCount, monthFolder } from "$lib/format";
-  import { t } from "$lib/i18n";
+  import { lang, t } from "$lib/i18n";
   import { PagedLibrary } from "$lib/library.svelte";
   import type {
-    AppSettings, Folders, KindFilter, LastScan, LibrarySection, LibrarySummary, MediaView, ScanProgress, SectionCounts, SortKey,
+    AppSettings, Folders, KindFilter, LastScan, RunProgress, LibrarySection, LibrarySummary, MediaView, ScanProgress, SectionCounts, SortKey,
   } from "$lib/types";
 
   const PAGE = 120;
@@ -43,6 +43,8 @@
   let cancelling = $state(false);
   let settingsOpen = $state(false);
   let reportOpen = $state(false);
+  let run = $state<RunProgress | null>(null);
+  let runActive = $state(false);
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -168,11 +170,13 @@
   }
 
   let unlisten: (() => void) | undefined;
+  let unlistenRun: (() => void) | undefined;
   let lastRefresh = 0;
   $effect(() => {
     void (async () => {
       try {
         settings = await getSettings();
+        if (settings.folder_language === null) settings = await updateSettings({ ...settings, folder_language: lang });
         applyTheme(settings);
         folders = await getFolders();
         await refreshCounts();
@@ -180,6 +184,32 @@
         scanning = status.running;
         scan = status.progress;
         lastScan = status.last;
+        runActive = (await getRunLog()).running;
+        unlistenRun = await onRunEvents({
+          progress: (p) => {
+            run = p;
+            runActive = true;
+          },
+          finished: (kind, p) => {
+            run = p;
+            runActive = false;
+            // Files moved back into the sources need to be indexed again.
+            if (kind === "undo" && p.mode === "move") void scanNow();
+            notify(
+              kind === "undo"
+                ? t.runView.undone(p.done, p.skipped)
+                : p.phase === "done"
+                  ? t.runView.finished(p.done, p.failed)
+                  : t.runView.partial(p.done, p.failed),
+            );
+            void refreshCounts();
+            void library.refreshLoaded();
+          },
+          failed: (e) => {
+            runActive = false;
+            notify(errorMessage(e));
+          },
+        });
         unlisten = await onScanEvents({
           progress: (p) => {
             scan = p;
@@ -213,17 +243,15 @@
       }
     })();
   });
-  onDestroy(() => unlisten?.());
+  onDestroy(() => {
+    unlisten?.();
+    unlistenRun?.();
+  });
 
   function destinationOf(m: MediaView) {
     return settings?.destination_root ? demoDestination(m, settings, settings.destination_root) : "";
   }
 
-  const demoDuplicates = $derived.by(() => {
-    const seen = new Map<string, number>();
-    for (const m of demoMedia) if (m.sha256) seen.set(m.sha256, (seen.get(m.sha256) ?? 0) + 1);
-    return new Set(demoMedia.filter((m) => m.sha256 && (seen.get(m.sha256) ?? 0) > 1).map((m) => m.id));
-  });
 
   function percent(n: number) {
     return `${((n / Math.max(counts.all, 1)) * 100).toLocaleString(t.locale, { maximumFractionDigits: 1 })}%`;
@@ -257,13 +285,10 @@
       </div>
 
       {#if section === "plan"}
-        {#if demo && settings}
-          <PlanPreview items={demoMedia} {settings} {destinationOf} duplicateIds={demoDuplicates} onBack={() => (section = "all")} />
-        {:else}
-          <div class="empty"><strong>{t.planLaterTitle}</strong>{t.planLaterHint}</div>
-        {/if}
+        <PlanView {settings} {run} running={runActive} onChooseDestination={changeDestination} onMessage={notify}
+          onOpenLog={() => (section = "history")} />
       {:else if section === "history"}
-        <div class="empty"><strong>{t.history.empty}</strong>{t.history.emptyHint}</div>
+        <RunLog running={runActive} onMessage={notify} />
       {:else if !demo && !hasSources}
         <div class="empty">
           <strong>{t.noSourcesTitle}</strong>{t.noSourcesHint}

@@ -18,6 +18,9 @@ pub fn start_scan(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppE
     if running.is_some() {
         return Err(AppError::user("scan_already_running"));
     }
+    if state.lock(&state.run)?.is_some() {
+        return Err(AppError::user("run_in_progress"));
+    }
     let (roots, settings) = {
         let db = state.db()?;
         (db.source_roots()?, db.load_settings()?)

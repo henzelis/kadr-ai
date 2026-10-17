@@ -3,6 +3,7 @@
 
 pub mod geobase;
 pub mod library;
+pub mod plan;
 pub mod scan;
 pub mod settings;
 pub mod sources;

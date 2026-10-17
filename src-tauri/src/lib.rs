@@ -102,6 +102,10 @@ pub fn run() {
             let db = Db::open(&path)?;
             let geobase_path = data_dir.join(GEOBASE_FILE);
             let geocoder = load_geocoder(app, &geobase_path);
+            let recovered = kadr_core::services::operations::recover_after_crash(&db)?;
+            if recovered > 0 {
+                eprintln!("kadr: {recovered} file operation(s) were interrupted; the plan can be continued");
+            }
             let interrupted = db.mark_interrupted_scans()?;
             if interrupted > 0 {
                 eprintln!(
@@ -151,6 +155,16 @@ pub fn run() {
             commands::scan::cancel_scan,
             commands::scan::get_scan_status,
             commands::scan::get_scan_report,
+            commands::plan::build_sort_plan,
+            commands::plan::get_plan_summary,
+            commands::plan::get_plan_items,
+            commands::plan::set_plan_included,
+            commands::plan::set_plan_mode,
+            commands::plan::apply_sort_plan,
+            commands::plan::undo_sort_plan,
+            commands::plan::cancel_run,
+            commands::plan::get_run_log,
+            commands::plan::get_run_failures,
         ])
         .run(context);
     if let Err(err) = result {

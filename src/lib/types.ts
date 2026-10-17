@@ -8,6 +8,7 @@ export type Theme = "system" | "light" | "dark";
 export type OperationMode = "copy" | "move";
 
 export interface AppSettings {
+  folder_language: "uk" | "en" | null;
   destination_root: string | null;
   folder_template: string;
   month_format: MonthFormat;
@@ -203,4 +204,77 @@ export interface ScanReport {
   missing: number;
   not_media_by_extension: { extension: string; count: number }[];
   issues: { path: string; kind: string; message: string | null }[];
+}
+
+export type PlanStatus = "ready" | "conflict" | "already_archived" | "already_in_place" | "duplicate";
+export type PlanFilter = "all" | "included" | "excluded" | "attention";
+export type ItemStatus = "planned" | "excluded" | "in_progress" | "done" | "failed" | "skipped" | "undone" | "interrupted";
+
+export interface PlanSummary {
+  id: number;
+  created_at: number;
+  destination_root: string;
+  mode: OperationMode;
+  state: "draft" | "running" | "partial" | "done" | "undoing" | "undone";
+  ready: number;
+  conflicts: number;
+  already_archived: number;
+  already_in_place: number;
+  duplicates: number;
+  included_files: number;
+  included_bytes: number;
+  no_date: number;
+  no_place: number;
+}
+
+export interface PlanRow {
+  id: number;
+  media_id: number | null;
+  source: string;
+  destination: string;
+  size: number;
+  captured_local: string | null;
+  place: string | null;
+  status: PlanStatus;
+  included: boolean;
+  item_status: ItemStatus;
+  notes: Note[];
+  companions: { id: number; file_name: string; destination: string; role: "main" | "sidecar" | "live_video" }[];
+}
+
+export interface PlanPage {
+  items: PlanRow[];
+  total: number;
+}
+
+export interface RunProgress {
+  plan_id: number;
+  mode: OperationMode;
+  phase: "running" | "undoing" | "done" | "partial";
+  total: number;
+  done: number;
+  failed: number;
+  skipped: number;
+  bytes_total: number;
+  bytes_done: number;
+  current: string | null;
+}
+
+export interface RunSummary {
+  plan_id: number;
+  created_at: number;
+  destination_root: string;
+  mode: OperationMode;
+  state: string;
+  done: number;
+  failed: number;
+  undone: number;
+  pending: number;
+  bytes_done: number;
+}
+
+export interface RunFailure {
+  source: string;
+  destination: string;
+  reason: Note | null;
 }

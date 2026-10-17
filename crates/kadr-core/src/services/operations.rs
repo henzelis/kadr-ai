@@ -66,6 +66,7 @@ pub enum RunPhase {
 #[derive(Debug, Clone, Serialize)]
 pub struct RunProgress {
     pub plan_id: i64,
+    pub mode: OperationMode,
     pub phase: RunPhase,
     pub total: u64,
     pub done: u64,
@@ -401,6 +402,7 @@ pub fn apply_plan(
 
     let mut p = RunProgress {
         plan_id,
+        mode,
         phase: RunPhase::Running,
         total: items.len() as u64,
         done: 0,
@@ -513,6 +515,7 @@ pub fn undo_plan(
     db.log_event(plan_id, None, "undo_start", None)?;
     let mut p = RunProgress {
         plan_id,
+        mode,
         phase: RunPhase::Undoing,
         total: items.len() as u64,
         done: 0,
