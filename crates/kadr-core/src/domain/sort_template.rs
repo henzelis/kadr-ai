@@ -58,7 +58,10 @@ mod tests {
 
     #[test]
     fn renders_all_month_formats() {
-        assert_eq!(MonthFormat::NumberName.render(8).as_deref(), Some("08 - Серпень"));
+        assert_eq!(
+            MonthFormat::NumberName.render(8).as_deref(),
+            Some("08 - Серпень")
+        );
         assert_eq!(MonthFormat::Number.render(8).as_deref(), Some("08"));
         assert_eq!(MonthFormat::Name.render(12).as_deref(), Some("Грудень"));
     }

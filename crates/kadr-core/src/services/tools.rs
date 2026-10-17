@@ -53,11 +53,15 @@ impl Tool {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ToolState {
-    Available { version: String },
+    Available {
+        version: String,
+    },
     /// Not found at the configured path or on PATH.
     Missing,
     /// Started but failed, timed out or printed something unexpected.
-    Broken { reason: String },
+    Broken {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -97,7 +101,11 @@ enum RunError {
     Failed(String),
 }
 
-fn run_with_timeout(program: &PathBuf, args: &[&str], timeout: Duration) -> Result<String, RunError> {
+fn run_with_timeout(
+    program: &PathBuf,
+    args: &[&str],
+    timeout: Duration,
+) -> Result<String, RunError> {
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
@@ -125,15 +133,16 @@ fn run_with_timeout(program: &PathBuf, args: &[&str], timeout: Duration) -> Resu
             Ok(None) if Instant::now() >= deadline => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(RunError::Failed(format!("no answer within {}s", timeout.as_secs())));
+                return Err(RunError::Failed(format!(
+                    "no answer within {}s",
+                    timeout.as_secs()
+                )));
             }
             Ok(None) => thread::sleep(POLL_INTERVAL),
             Err(e) => return Err(RunError::Failed(e.to_string())),
         }
     };
-    let stdout = reader
-        .and_then(|h| h.join().ok())
-        .unwrap_or_default();
+    let stdout = reader.and_then(|h| h.join().ok()).unwrap_or_default();
     if status.success() {
         Ok(stdout)
     } else {
@@ -147,7 +156,10 @@ mod tests {
 
     #[test]
     fn parses_known_version_outputs() {
-        assert_eq!(Tool::Exiftool.parse_version("12.76\n").as_deref(), Some("12.76"));
+        assert_eq!(
+            Tool::Exiftool.parse_version("12.76\n").as_deref(),
+            Some("12.76")
+        );
         assert_eq!(
             Tool::Ffprobe
                 .parse_version("ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023\n")

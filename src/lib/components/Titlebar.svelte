@@ -22,7 +22,9 @@
   </div>
   <div class="top-right">
     <span class="demo-tag" title={t.demoHint}>{t.demoData}</span>
-    <button class="icon-button" title={t.toggleTheme} aria-label={t.toggleTheme} onclick={onToggleTheme}>◐</button>
+    <button class="icon-button" title={t.toggleTheme} aria-label={t.toggleTheme} onclick={onToggleTheme}>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+    </button>
     <button class="icon-button" title={t.settings} aria-label={t.settings} onclick={onOpenSettings}>⚙</button>
     <button class="primary" onclick={onAddFolders}><span aria-hidden="true">＋</span> {t.addFolders}</button>
   </div>

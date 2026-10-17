@@ -15,6 +15,8 @@ impl AppState {
     }
 
     pub fn db(&self) -> Result<MutexGuard<'_, Db>, AppError> {
-        self.db.lock().map_err(|_| AppError::internal("index lock poisoned"))
+        self.db
+            .lock()
+            .map_err(|_| AppError::internal("index lock poisoned"))
     }
 }

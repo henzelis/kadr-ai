@@ -55,7 +55,10 @@ fn invalid_setting_message(field: &str) -> String {
                 .to_owned()
         }
         "metadata_workers" | "thumbnail_workers" => {
-            format!("Кількість потоків має бути від 1 до {}.", kadr_core::settings::MAX_WORKERS)
+            format!(
+                "Кількість потоків має бути від 1 до {}.",
+                kadr_core::settings::MAX_WORKERS
+            )
         }
         "folder_template" => "Шаблон папок має закінчуватися на {filename}.".to_owned(),
         "network_enabled" => "Мережеві функції в цій версії недоступні.".to_owned(),

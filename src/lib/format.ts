@@ -1,5 +1,5 @@
 import { t } from "./i18n/uk";
-import type { AppSettings, MediaView, MonthFormat } from "./types";
+import type { AppSettings, CapturedDate, MediaView, MonthFormat } from "./types";
 
 const MONTHS_UK = [
   "Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
@@ -76,12 +76,22 @@ export function monthFolder(format: MonthFormat, month: number): string {
  */
 export function demoDestination(item: MediaView, settings: AppSettings, root: string): string {
   const sep = root.includes("\\") ? "\\" : "/";
-  const p = item.captured ? parts(item.captured.local) : null;
+  const captured = effectiveDate(item, settings);
+  const p = captured ? parts(captured.local) : null;
   const place = item.place_label ?? settings.unknown_place_label;
   const segments = p
     ? [String(p.y), monthFolder(settings.month_format, p.m), place]
     : [settings.unknown_date_label, place];
   return [root, ...segments, item.file_name].join(sep);
+}
+
+/**
+ * The capture date the planner may use. A file-system date counts only while
+ * the user has that fallback switched on; otherwise the date is unknown.
+ */
+export function effectiveDate(item: MediaView, settings: AppSettings): CapturedDate | null {
+  if (item.captured?.status === "file_system_fallback" && !settings.filesystem_date_fallback) return null;
+  return item.captured;
 }
 
 export type MetaState = { label: string; tone: "ok" | "review" | "missing" };

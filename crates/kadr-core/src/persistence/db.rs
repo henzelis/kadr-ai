@@ -29,7 +29,8 @@ impl Db {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         // WAL keeps the UI's reads from blocking the scanner's writes.
         // In-memory databases report "memory" here; that is fine.
-        let _mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
+        let _mode: String =
+            conn.pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         let mut db = Self { conn };
         db.migrate()?;
@@ -38,7 +39,9 @@ impl Db {
 
     /// Current schema version.
     pub fn schema_version(&self) -> CoreResult<i64> {
-        Ok(self.conn.pragma_query_value(None, "user_version", |r| r.get(0))?)
+        Ok(self
+            .conn
+            .pragma_query_value(None, "user_version", |r| r.get(0))?)
     }
 
     /// Latest schema version this build knows.
@@ -206,7 +209,10 @@ mod tests {
     fn duplicate_paths_are_rejected_by_schema() {
         let db = Db::open_in_memory().unwrap();
         db.conn
-            .execute("INSERT INTO source_root (path, added_at) VALUES ('/p', 1)", [])
+            .execute(
+                "INSERT INTO source_root (path, added_at) VALUES ('/p', 1)",
+                [],
+            )
             .unwrap();
         let insert = "INSERT INTO media_item (source_root_id, path, normalized_path, file_name,
                       extension, media_kind, size_bytes, mtime, scan_timestamp)

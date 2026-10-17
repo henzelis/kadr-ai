@@ -111,10 +111,9 @@ fn validate_label(field: &'static str, value: &str) -> CoreResult<()> {
         Some("must not start or end with spaces or end with a dot")
     } else if is_windows_reserved(trimmed) {
         Some("is a reserved device name on Windows")
-    } else if trimmed
-        .chars()
-        .any(|c| matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control())
-    {
+    } else if trimmed.chars().any(|c| {
+        matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+    }) {
         Some("contains characters not allowed in folder names")
     } else {
         None
@@ -174,7 +173,8 @@ mod tests {
     #[test]
     fn rejects_unsafe_labels() {
         for bad in [
-            "", "   ", "..", ".", " x", "x.", "a/b", "a\\b", "C:", "x\u{7}", "CON", "nul.txt", "COM1",
+            "", "   ", "..", ".", " x", "x.", "a/b", "a\\b", "C:", "x\u{7}", "CON", "nul.txt",
+            "COM1",
         ] {
             let s = AppSettings {
                 unknown_place_label: bad.to_owned(),
@@ -186,7 +186,13 @@ mod tests {
 
     #[test]
     fn accepts_ordinary_labels() {
-        for ok in ["Без геолокації", "Unknown place", "COM10", "Console", "2025 літо"] {
+        for ok in [
+            "Без геолокації",
+            "Unknown place",
+            "COM10",
+            "Console",
+            "2025 літо",
+        ] {
             let s = AppSettings {
                 unknown_place_label: ok.to_owned(),
                 ..AppSettings::default()
