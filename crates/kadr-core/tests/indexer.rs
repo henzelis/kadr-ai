@@ -95,7 +95,7 @@ fn by_name<'a>(rows: &'a [MediaRow], name: &str) -> &'a MediaRow {
 }
 
 fn real_helpers() -> Option<Helpers> {
-    let (h, _) = Helpers::detect(&AppSettings::default());
+    let (h, _) = Helpers::detect(&AppSettings::default(), None);
     if h.exiftool.is_none() || h.ffprobe.is_none() {
         eprintln!("NOTICE: ExifTool or FFprobe missing — helper-based test skipped");
         return None;
@@ -261,7 +261,12 @@ fn works_without_external_helpers() {
     assert!(full.gps.is_some());
     let mov = by_name(&rows, "iphone.mov");
     assert_eq!(mov.metadata_status, MetadataStatus::Unavailable);
-    assert!(mov.last_error.as_ref().unwrap().contains("ExifTool"));
+    assert!(
+        mov.last_error
+            .as_ref()
+            .unwrap()
+            .contains("Перевстановіть Kadr")
+    );
     assert!(
         all(&e.db, LibrarySection::Review)
             .iter()

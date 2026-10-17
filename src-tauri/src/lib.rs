@@ -42,7 +42,13 @@ pub fn run() {
                     "kadr: {interrupted} scan(s) from a previous session marked as interrupted"
                 );
             }
-            app.manage(AppState::new(db, path, geobase_path, geocoder));
+            let helpers_dir = app
+                .path()
+                .resource_dir()
+                .ok()
+                .map(|d| d.join("helpers"))
+                .filter(|d| d.is_dir());
+            app.manage(AppState::new(db, path, geobase_path, geocoder, helpers_dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

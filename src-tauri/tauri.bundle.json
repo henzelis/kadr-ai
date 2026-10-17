@@ -2,7 +2,9 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "resources": {
-      "resources/geobase.sqlite3": "geobase.sqlite3"
+      "resources/geobase.sqlite3": "geobase.sqlite3",
+      "resources/helpers/": "helpers/",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     }
   }
 }

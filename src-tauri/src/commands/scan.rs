@@ -39,7 +39,7 @@ pub fn start_scan(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppE
         let state = app.state::<AppState>();
         let result = (|| -> Result<ScanProgress, AppError> {
             let mut db = Db::open(&db_path)?;
-            let (helpers, _) = Helpers::detect(&settings);
+            let (helpers, _) = Helpers::detect(&settings, state.helpers_dir.as_deref());
             let exclude = settings.destination_root.iter().map(Into::into).collect();
             let req = ScanRequest {
                 roots: &roots,

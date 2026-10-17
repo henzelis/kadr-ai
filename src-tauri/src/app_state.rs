@@ -24,6 +24,8 @@ pub struct AppState {
     pub geocoder: RwLock<Option<Arc<OfflineGeocoder>>>,
     /// Where an imported geobase is kept (app data directory).
     pub geobase_path: PathBuf,
+    /// ExifTool / FFmpeg shipped with the installer, if present.
+    pub helpers_dir: Option<PathBuf>,
 }
 
 impl AppState {
@@ -32,6 +34,7 @@ impl AppState {
         db_path: PathBuf,
         geobase_path: PathBuf,
         geocoder: Option<OfflineGeocoder>,
+        helpers_dir: Option<PathBuf>,
     ) -> Self {
         Self {
             db: Mutex::new(db),
@@ -40,6 +43,7 @@ impl AppState {
             last_progress: Mutex::new(None),
             geocoder: RwLock::new(geocoder.map(Arc::new)),
             geobase_path,
+            helpers_dir,
         }
     }
 

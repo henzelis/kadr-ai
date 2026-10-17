@@ -63,8 +63,9 @@ export async function updateSettings(settings: AppSettings): Promise<AppSettings
 export async function getToolStatus(): Promise<ToolStatus[]> {
   if (!inTauri) {
     return [
-      { tool: "exiftool", program: "exiftool", state: "missing" },
-      { tool: "ffprobe", program: "ffprobe", state: "missing" },
+      { tool: "exiftool", program: "exiftool", state: "available", version: "13.59", source: "bundled" },
+      { tool: "ffprobe", program: "ffprobe", state: "available", version: "8.1.3", source: "bundled" },
+      { tool: "ffmpeg", program: "ffmpeg", state: "missing" },
     ];
   }
   return invoke<ToolStatus[]>("get_tool_status");

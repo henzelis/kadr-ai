@@ -76,7 +76,7 @@
   }
 
   function toolName(tool: ToolStatus["tool"]) {
-    return tool === "exiftool" ? "ExifTool" : "FFprobe";
+    return { exiftool: "ExifTool", ffprobe: "FFprobe", ffmpeg: "FFmpeg" }[tool];
   }
 </script>
 
@@ -156,8 +156,9 @@
           {#each tools as tool (tool.tool)}
             <div class="tool">
               <strong>{toolName(tool.tool)}</strong>
+              <span class="purpose">{t.settingsDialog.toolPurpose[tool.tool]}</span>
               {#if tool.state === "available"}
-                <span class="chip">✓ {t.settingsDialog.available(tool.version)}</span>
+                <span class="chip">✓ {t.settingsDialog.available(tool.version, t.settingsDialog.toolSource[tool.source])}</span>
               {:else if tool.state === "missing"}
                 <span class="chip error">✕ {t.settingsDialog.missing}</span>
               {:else}
@@ -168,13 +169,16 @@
           {/each}
         {/if}
       </div>
-      <div class="grid">
-        <label class="row">{t.settingsDialog.exiftoolPath}
-          <input bind:value={draft.exiftool_path} placeholder={t.settingsDialog.pathPlaceholder} /></label>
-        <label class="row">{t.settingsDialog.ffprobePath}
-          <input bind:value={draft.ffprobe_path} placeholder={t.settingsDialog.pathPlaceholder} /></label>
-      </div>
-      <button type="button" class="secondary" onclick={recheck}>↻ {t.settingsDialog.recheck}</button>
+      <details class="advanced" open={Boolean(draft.exiftool_path || draft.ffprobe_path)}>
+        <summary>{t.settingsDialog.advanced}</summary>
+        <div class="grid">
+          <label class="row">{t.settingsDialog.exiftoolPath}
+            <input bind:value={draft.exiftool_path} placeholder={t.settingsDialog.pathPlaceholder} /></label>
+          <label class="row">{t.settingsDialog.ffprobePath}
+            <input bind:value={draft.ffprobe_path} placeholder={t.settingsDialog.pathPlaceholder} /></label>
+        </div>
+        <button type="button" class="secondary" onclick={recheck}>↻ {t.settingsDialog.recheck}</button>
+      </details>
     </fieldset>
 
     <fieldset>
@@ -235,7 +239,11 @@
   .check strong { color: var(--text); }
   .check input { accent-color: var(--accent); margin-top: 3px; }
   .tools { display: grid; gap: 6px; margin: 6px 0 4px; }
-  .tool { display: flex; gap: 10px; align-items: center; font-size: 12px; }
+  .tool { display: flex; gap: 10px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+  .tool strong { min-width: 62px; }
+  .purpose { color: var(--muted); font-size: 10px; min-width: 130px; }
+  .advanced { margin-top: 10px; }
+  .advanced summary { cursor: pointer; font-size: 11px; color: var(--muted); }
   .attribution { margin: 6px 0 10px; }
   .notice { font-size: 11px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
   .error { margin-top: 14px; font-size: 11px; color: var(--red); background: var(--red-soft); border-radius: 8px; padding: 9px 11px; }

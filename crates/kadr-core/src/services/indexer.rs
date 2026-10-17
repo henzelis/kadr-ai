@@ -34,19 +34,37 @@ const PIPELINE_VERSION: u32 = 1;
 const FILES_PER_WORKER: usize = 24;
 const HASH_BUFFER: usize = 1 << 20;
 
-/// External helpers found at startup; either may be missing.
+/// External helpers found at startup; any may be missing.
 #[derive(Default)]
 pub struct Helpers {
     pub exiftool: Option<ExifTool>,
     pub ffprobe: Option<FfProbe>,
+    /// Used for thumbnails (video frames, HEIC, AVIF).
+    pub ffmpeg: Option<PathBuf>,
 }
 
 impl Helpers {
-    /// Probes the configured helpers and keeps the ones that answer.
-    pub fn detect(settings: &AppSettings) -> (Self, Vec<super::tools::ToolStatus>) {
+    /// Probes the helpers (Settings path, bundled copy, PATH) and keeps the
+    /// ones that answer.
+    pub fn detect(
+        settings: &AppSettings,
+        bundled: Option<&std::path::Path>,
+    ) -> (Self, Vec<super::tools::ToolStatus>) {
         use super::tools::{Tool, probe};
-        let exif = probe(Tool::Exiftool, settings.exiftool_path.as_deref());
-        let ff = probe(Tool::Ffprobe, settings.ffprobe_path.as_deref());
+        let exif = probe(Tool::Exiftool, settings.exiftool_path.as_deref(), bundled);
+        let ff = probe(Tool::Ffprobe, settings.ffprobe_path.as_deref(), bundled);
+        // FFmpeg lives next to the chosen FFprobe when that one was set by hand.
+        let ffmpeg_custom = settings.ffprobe_path.as_deref().and_then(|p| {
+            let name = if cfg!(windows) {
+                "ffmpeg.exe"
+            } else {
+                "ffmpeg"
+            };
+            std::path::Path::new(p.trim())
+                .parent()
+                .map(|d| d.join(name).to_string_lossy().into_owned())
+        });
+        let mpeg = probe(Tool::Ffmpeg, ffmpeg_custom.as_deref(), bundled);
         let helpers = Self {
             exiftool: exif
                 .version()
@@ -54,8 +72,9 @@ impl Helpers {
             ffprobe: ff
                 .version()
                 .map(|v| FfProbe::new(PathBuf::from(&ff.program), v)),
+            ffmpeg: mpeg.version().map(|_| PathBuf::from(&mpeg.program)),
         };
-        (helpers, vec![exif, ff])
+        (helpers, vec![exif, ff, mpeg])
     }
 
     fn provider_key(&self, hashes: bool) -> String {
@@ -206,7 +225,7 @@ fn work(
 fn friendly_error(err: &ReadError) -> &'static str {
     match err {
         ReadError::HelperMissing => {
-            "Немає інструмента для читання метаданих цього формату. Встановіть ExifTool або FFprobe."
+            "Немає інструмента для читання метаданих цього формату. Перевстановіть Kadr, щоб відновити вбудовані інструменти."
         }
         ReadError::Unreadable(_) => {
             "Не вдалося прочитати метадані: файл пошкоджений або формат не підтримується."

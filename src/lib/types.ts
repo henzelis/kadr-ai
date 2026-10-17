@@ -29,10 +29,12 @@ export interface AppSettings {
   theme: Theme;
 }
 
+export type ToolName = "exiftool" | "ffprobe" | "ffmpeg";
+export type ToolSource = "custom" | "bundled" | "system";
 export type ToolStatus =
-  | { tool: "exiftool" | "ffprobe"; program: string; state: "available"; version: string }
-  | { tool: "exiftool" | "ffprobe"; program: string; state: "missing" }
-  | { tool: "exiftool" | "ffprobe"; program: string; state: "broken"; reason: string };
+  | { tool: ToolName; program: string; state: "available"; version: string; source: ToolSource }
+  | { tool: ToolName; program: string; state: "missing" }
+  | { tool: ToolName; program: string; state: "broken"; reason: string };
 
 export interface LibrarySummary {
   media_count: number;

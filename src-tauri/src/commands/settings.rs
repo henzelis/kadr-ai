@@ -1,4 +1,5 @@
-use kadr_core::services::tools::{self, Tool, ToolStatus};
+use kadr_core::services::indexer::Helpers;
+use kadr_core::services::tools::ToolStatus;
 use kadr_core::settings::AppSettings;
 use tauri::State;
 
@@ -42,17 +43,13 @@ pub async fn update_settings(
     Ok(stored)
 }
 
-/// Probes ExifTool and FFprobe. Runs off the main thread: a hung helper
-/// must not freeze the window.
+/// Probes ExifTool, FFprobe and FFmpeg. Runs off the main thread: a hung
+/// helper must not freeze the window.
 #[tauri::command]
 pub async fn get_tool_status(state: State<'_, AppState>) -> Result<Vec<ToolStatus>, AppError> {
     let settings = state.db()?.load_settings()?;
-    tauri::async_runtime::spawn_blocking(move || {
-        vec![
-            tools::probe(Tool::Exiftool, settings.exiftool_path.as_deref()),
-            tools::probe(Tool::Ffprobe, settings.ffprobe_path.as_deref()),
-        ]
-    })
-    .await
-    .map_err(|e| AppError::internal(&e.to_string()))
+    let bundled = state.helpers_dir.clone();
+    tauri::async_runtime::spawn_blocking(move || Helpers::detect(&settings, bundled.as_deref()).1)
+        .await
+        .map_err(|e| AppError::internal(&e.to_string()))
 }
