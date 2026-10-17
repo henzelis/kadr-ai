@@ -2,6 +2,8 @@
 //! 12–18 and stage E "fault injection").
 
 #![allow(clippy::unwrap_used, clippy::expect_used)] // test helpers panic on purpose
+// Some helpers are used only by the Unix-only tests (symlinks, permissions).
+#![cfg_attr(not(unix), allow(unused_imports, dead_code))]
 
 use std::fs;
 use std::io;
