@@ -190,3 +190,12 @@ export interface GeobaseInfo {
   places: number;
   built_at: string;
 }
+
+export interface ScanReport {
+  summary: LastScan;
+  in_library: number;
+  companions: number;
+  missing: number;
+  not_media_by_extension: { extension: string; count: number }[];
+  issues: { path: string; kind: string; message: string | null }[];
+}

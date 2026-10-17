@@ -17,7 +17,8 @@ pub fn kind_from_extension(ext: &str) -> MediaKind {
             MediaKind::RawPhoto
         }
         "mp4" | "mov" | "m4v" | "mkv" | "avi" | "webm" | "3gp" | "3g2" | "mpeg" | "mpg" | "mts"
-        | "m2ts" | "ts" | "wmv" | "flv" | "ogv" | "insv" => MediaKind::Video,
+        | "m2ts" | "m2t" | "ts" | "wmv" | "flv" | "ogv" | "insv" | "mod" | "tod" | "vob"
+        | "divx" | "mxf" | "f4v" | "asf" | "qt" | "rm" | "rmvb" | "dv" => MediaKind::Video,
         "aae" | "xmp" | "thm" => MediaKind::Sidecar,
         _ => MediaKind::Unsupported,
     }

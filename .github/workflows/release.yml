@@ -1,0 +1,210 @@
+name: Installers
+
+# Every push to main builds the Windows, macOS and Linux installers and checks
+# each on a clean machine. A tag vX.Y.Z also publishes them as the Latest
+# GitHub release. Users install nothing else: ExifTool, FFmpeg/FFprobe and
+# the offline geobase are inside.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GEOBASE_TAG: geobase-2026-10-17
+  GEOBASE_SHA256: c00a42ff504268be68f72524acde7bebfc58042f472aff589cb2e6af05caa89a
+  DEPS_TAG: deps-2026-10-17
+  FFMPEG_TAG: deps-ffmpeg-8.1.3
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Geobase, ExifTool and FFmpeg from the pinned releases
+        run: |
+          gh release download "$GEOBASE_TAG" --pattern geobase.sqlite3 --dir src-tauri/resources
+          echo "$GEOBASE_SHA256  src-tauri/resources/geobase.sqlite3" | sha256sum -c -
+          mkdir -p deps && gh release download "$DEPS_TAG" --dir deps
+          (cd deps && sha256sum -c SHA256SUMS)
+          H=src-tauri/resources/helpers
+          mkdir -p $H/exiftool $H/ffmpeg
+          7z x -y -odeps/exiftool deps/exiftool-*_64.zip > /dev/null
+          E=$(ls -d deps/exiftool/exiftool-*_64)
+          cp "$E/exiftool(-k).exe" $H/exiftool/exiftool.exe
+          cp -r "$E/exiftool_files" $H/exiftool/
+          7z x -y -odeps/ffmpeg deps/ffmpeg-*-win64-lgpl-shared.zip > /dev/null
+          F=$(ls -d deps/ffmpeg/ffmpeg-*)
+          cp "$F"/bin/ffmpeg.exe "$F"/bin/ffprobe.exe "$F"/bin/*.dll $H/ffmpeg/
+          cp "$F/LICENSE.txt" $H/ffmpeg/LICENSE.txt
+      - name: Build installer
+        timeout-minutes: 40
+        run: pnpm tauri build --bundles nsis --config src-tauri/tauri.bundle.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kadr-windows
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Smoke test the installed app
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -PassThru
+          if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force; throw "installer did not finish in 5 minutes" }
+          $app = Join-Path $env:LOCALAPPDATA 'Kadr'
+          $report = Join-Path $env:RUNNER_TEMP 'self-check.json'
+          $c = Start-Process -FilePath (Join-Path $app 'kadr.exe') -ArgumentList '--self-check', $report -PassThru -Wait
+          Get-Content $report
+          if ($c.ExitCode -ne 0) { throw "self-check failed" }
+          & (Join-Path $app 'helpers/exiftool/exiftool.exe') -json -DateTimeOriginal crates/kadr-core/tests/fixtures/media/exif_full.jpg
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Geobase, ExifTool and FFmpeg from the pinned releases
+        run: |
+          gh release download "$GEOBASE_TAG" --pattern geobase.sqlite3 --dir src-tauri/resources
+          echo "$GEOBASE_SHA256  src-tauri/resources/geobase.sqlite3" | shasum -a 256 -c -
+          mkdir -p deps
+          gh release download "$DEPS_TAG" --pattern 'Image-ExifTool-*.tar.gz' --pattern SHA256SUMS --dir deps
+          gh release download "$FFMPEG_TAG" --pattern '*macos-universal.tar.xz' --pattern SHA256SUMS-ffmpeg --dir deps
+          (cd deps && shasum -a 256 -c --ignore-missing SHA256SUMS && shasum -a 256 -c --ignore-missing SHA256SUMS-ffmpeg)
+          H=src-tauri/resources/helpers
+          mkdir -p $H/exiftool $H/ffmpeg
+          tar xzf deps/Image-ExifTool-*.tar.gz -C deps
+          E=$(ls -d deps/Image-ExifTool-*/)
+          cp "$E/exiftool" $H/exiftool/ && cp -R "$E/lib" $H/exiftool/ && cp "$E/README" $H/exiftool/README.txt
+          tar xJf deps/ffmpeg-*-macos-universal.tar.xz -C $H/ffmpeg
+          chmod +x $H/exiftool/exiftool $H/ffmpeg/ffmpeg $H/ffmpeg/ffprobe
+          $H/exiftool/exiftool -ver && $H/ffmpeg/ffprobe -hide_banner -version | head -1
+      - name: Build app (Apple Silicon + Intel)
+        timeout-minutes: 45
+        run: pnpm tauri build --target universal-apple-darwin --bundles dmg --config src-tauri/tauri.bundle.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kadr-macos
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+      - name: Smoke test the app from the disk image
+        timeout-minutes: 10
+        run: |
+          DMG=$(ls target/universal-apple-darwin/release/bundle/dmg/*.dmg)
+          MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | grep -o '/Volumes/.*' | head -1)
+          APP="$MNT/Kadr.app"
+          cp -R "$APP" "$RUNNER_TEMP/"
+          hdiutil detach "$MNT"
+          APP="$RUNNER_TEMP/Kadr.app"
+          codesign --verify --deep --verbose=2 "$APP" || true
+          lipo -info "$APP/Contents/MacOS/kadr"
+          "$APP/Contents/MacOS/kadr" --self-check "$RUNNER_TEMP/self-check.json" || { cat "$RUNNER_TEMP/self-check.json"; exit 1; }
+          cat "$RUNNER_TEMP/self-check.json"
+          "$APP/Contents/Resources/helpers/exiftool/exiftool" -json -DateTimeOriginal crates/kadr-core/tests/fixtures/media/exif_full.jpg
+
+  linux:
+    # Oldest supported Ubuntu, so the packages run on older distributions too.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev libfuse2 file
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Geobase, ExifTool and FFmpeg from the pinned releases
+        run: |
+          gh release download "$GEOBASE_TAG" --pattern geobase.sqlite3 --dir src-tauri/resources
+          echo "$GEOBASE_SHA256  src-tauri/resources/geobase.sqlite3" | sha256sum -c -
+          mkdir -p deps
+          gh release download "$DEPS_TAG" --pattern 'Image-ExifTool-*.tar.gz' --pattern SHA256SUMS --dir deps
+          gh release download "$FFMPEG_TAG" --pattern '*linux-x86_64.tar.xz' --pattern SHA256SUMS-ffmpeg --dir deps
+          (cd deps && sha256sum -c --ignore-missing SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS-ffmpeg)
+          H=src-tauri/resources/helpers
+          mkdir -p $H/exiftool $H/ffmpeg
+          tar xzf deps/Image-ExifTool-*.tar.gz -C deps
+          E=$(ls -d deps/Image-ExifTool-*/)
+          cp "$E/exiftool" $H/exiftool/ && cp -R "$E/lib" $H/exiftool/ && cp "$E/README" $H/exiftool/README.txt
+          tar xJf deps/ffmpeg-*-linux-x86_64.tar.xz -C $H/ffmpeg
+          chmod +x $H/exiftool/exiftool $H/ffmpeg/ffmpeg $H/ffmpeg/ffprobe
+      - name: Build AppImage and .deb
+        timeout-minutes: 45
+        run: pnpm tauri build --bundles appimage,deb --config src-tauri/tauri.bundle.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kadr-linux
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 30
+      - name: Smoke test the AppImage and the .deb
+        timeout-minutes: 10
+        run: |
+          IMG=$(ls target/release/bundle/appimage/*.AppImage)
+          chmod +x "$IMG"
+          "$IMG" --self-check "$RUNNER_TEMP/appimage.json" || { cat "$RUNNER_TEMP/appimage.json"; exit 1; }
+          cat "$RUNNER_TEMP/appimage.json"
+          sudo apt-get install -y ./target/release/bundle/deb/*.deb
+          kadr --self-check "$RUNNER_TEMP/deb.json" || { cat "$RUNNER_TEMP/deb.json"; exit 1; }
+          cat "$RUNNER_TEMP/deb.json"
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ls -la dist
+          gh release create "$TAG" dist/* --title "Kadr ${TAG#v}" --notes-file .github/release-notes.md --latest --verify-tag

@@ -478,13 +478,20 @@ pub fn run_scan(
                 }
                 WalkEvent::Skipped { path, reason } => {
                     p.skipped += 1;
-                    let kind = match reason {
-                        SkipReason::NotMedia => return,
-                        SkipReason::SystemDir => "system_dir",
-                        SkipReason::Symlink => "symlink",
-                        SkipReason::Excluded => "excluded",
+                    let (kind, message) = match reason {
+                        // The extension goes in the message so the report can
+                        // say "120 × .psd" instead of listing every file.
+                        SkipReason::NotMedia => (
+                            "not_media",
+                            path.extension()
+                                .map(|e| e.to_string_lossy().to_lowercase())
+                                .unwrap_or_default(),
+                        ),
+                        SkipReason::SystemDir => ("system_dir", String::new()),
+                        SkipReason::Symlink => ("symlink", String::new()),
+                        SkipReason::Excluded => ("excluded", String::new()),
                     };
-                    issues.push((path.to_string_lossy().into_owned(), kind, String::new()));
+                    issues.push((path.to_string_lossy().into_owned(), kind, message));
                 }
                 WalkEvent::Error { path, message } => {
                     p.errors += 1;

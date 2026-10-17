@@ -32,13 +32,23 @@ fn load_geocoder(app: &tauri::App, imported: &std::path::Path) -> Option<Offline
 fn self_check(package_info: &tauri::PackageInfo, out: Option<&str>) -> i32 {
     use kadr_core::services::indexer::Helpers;
     let resources = tauri::utils::platform::resource_dir(package_info, &tauri::Env::default()).ok();
-    let helpers_dir = resources.as_ref().map(|d| d.join("helpers")).filter(|d| d.is_dir());
-    let (_, tools) = Helpers::detect(&kadr_core::settings::AppSettings::default(), helpers_dir.as_deref());
+    let helpers_dir = resources
+        .as_ref()
+        .map(|d| d.join("helpers"))
+        .filter(|d| d.is_dir());
+    let (_, tools) = Helpers::detect(
+        &kadr_core::settings::AppSettings::default(),
+        helpers_dir.as_deref(),
+    );
     let geobase = resources
         .as_ref()
         .map(|d| d.join(GEOBASE_FILE))
         .filter(|p| p.is_file())
-        .map(|p| OfflineGeocoder::open(&p).map(|g| g.info().clone()).map_err(|e| e.to_string()));
+        .map(|p| {
+            OfflineGeocoder::open(&p)
+                .map(|g| g.info().clone())
+                .map_err(|e| e.to_string())
+        });
     let all_bundled = tools.iter().all(|t| {
         matches!(
             t.state,
@@ -77,7 +87,10 @@ pub fn run() {
     let context = tauri::generate_context!();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-check") {
-        std::process::exit(self_check(context.package_info(), args.get(2).map(String::as_str)));
+        std::process::exit(self_check(
+            context.package_info(),
+            args.get(2).map(String::as_str),
+        ));
     }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -137,6 +150,7 @@ pub fn run() {
             commands::scan::start_scan,
             commands::scan::cancel_scan,
             commands::scan::get_scan_status,
+            commands::scan::get_scan_report,
         ])
         .run(context);
     if let Err(err) = result {

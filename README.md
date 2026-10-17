@@ -10,20 +10,27 @@
 > пов'язані файли (AAE, XMP, Live Photo) і групує точні дублікати. План
 > сортування — етап D, копіювання/переміщення — етап E.
 
-## Встановлення (Windows)
+## Встановлення
 
-Завантажте `Kadr_…_x64-setup.exe` з розділу
-[Releases](https://github.com/henzelis/kadr-ai/releases) і запустіть. Інсталятор
-містить усе потрібне: ExifTool, FFmpeg/FFprobe, офлайн-геобазу; WebView2
-доставляється автоматично, якщо його немає. Окремо нічого встановлювати не треба.
+Завантажте файл для своєї системи з розділу
+[Releases](https://github.com/henzelis/kadr-ai/releases/latest):
 
-Kadr безкоштовний, тому інсталятор не має платного цифрового підпису: Windows
-SmartScreen покаже «Windows захистив ваш ПК» — натисніть **Докладніше → Усе одно
-запустити**.
+- **Windows 10/11** — `Kadr_…_x64-setup.exe`;
+- **macOS 11+** (Apple Silicon і Intel) — `Kadr_…_universal.dmg`;
+- **Linux** — `Kadr_…_amd64.AppImage` (будь-який дистрибутив) або `.deb`.
 
-Нова версія публікується тегом `vX.Y.Z` (або `vX.Y.Z-preview.N` для тестових):
-workflow **Windows installer** збирає інсталятор, перевіряє його на чистій
-Windows і викладає в Releases.
+Усе потрібне вже всередині: ExifTool, FFmpeg/FFprobe, офлайн-геобаза (на
+Windows ще й WebView2, якщо його немає). Окремо нічого встановлювати не треба.
+
+Kadr безкоштовний і не має платного цифрового підпису, тому система
+попередить під час першого запуску. **Windows:** «Докладніше → Усе одно
+запустити». **macOS:** Системні параметри → Приватність і безпека → «Усе одно
+відкрити».
+
+Нова версія публікується тегом `vX.Y.Z`: workflow **Installers** збирає всі
+три інсталятори, перевіряє кожен на чистій машині (`kadr --self-check`) і
+викладає їх у Releases. FFmpeg для macOS/Linux збирає workflow **Build FFmpeg
+for macOS and Linux** (`scripts/build-ffmpeg.sh`).
 
 ## Стек
 

@@ -9,7 +9,7 @@ import { DEMO_DESTINATION, DEMO_SOURCE, demoMedia } from "./demo";
 import { formatShortDate } from "./format";
 import type {
   AppError, AppSettings, Folders, GeobaseInfo, LibrarySummary, MediaPage, MediaQuery, MediaView,
-  ScanProgress, ScanStatus, SectionCounts, ToolStatus,
+  ScanProgress, ScanReport, ScanStatus, SectionCounts, ToolStatus,
 } from "./types";
 
 export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -150,6 +150,11 @@ export async function cancelScan(): Promise<void> {
 export async function getScanStatus(): Promise<ScanStatus> {
   if (!inTauri) return { running: false, progress: null, last: null };
   return invoke<ScanStatus>("get_scan_status");
+}
+
+export async function getScanReport(): Promise<ScanReport | null> {
+  if (!inTauri) return null;
+  return invoke<ScanReport | null>("get_scan_report");
 }
 
 export async function onScanEvents(handlers: {

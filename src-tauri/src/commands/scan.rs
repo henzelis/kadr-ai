@@ -111,3 +111,11 @@ pub fn get_scan_status(state: State<'_, AppState>) -> Result<ScanStatus, AppErro
         last: state.db()?.last_scan()?,
     })
 }
+
+/// Why each file is or is not in the library, for the latest scan.
+#[tauri::command]
+pub fn get_scan_report(
+    state: State<'_, AppState>,
+) -> Result<Option<kadr_core::persistence::media::ScanReport>, AppError> {
+    Ok(state.db()?.scan_report(None)?)
+}

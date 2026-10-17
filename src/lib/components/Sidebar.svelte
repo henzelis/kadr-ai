@@ -7,7 +7,7 @@
   import { t } from "$lib/i18n/uk";
   import type { Folders, LastScan, ScanProgress, SectionCounts } from "$lib/types";
 
-  let { section, counts, folders, scan, lastScan, scanning, cancelling, onSelect, onAddSources, onRemoveSource, onChangeDestination, onCancelScan }: {
+  let { section, counts, folders, scan, lastScan, scanning, cancelling, onSelect, onAddSources, onRemoveSource, onChangeDestination, onCancelScan, onReport }: {
     section: Section;
     counts: SectionCounts;
     folders: Folders | null;
@@ -20,6 +20,7 @@
     onRemoveSource: (id: number) => void;
     onChangeDestination: () => void;
     onCancelScan: () => void;
+    onReport: () => void;
   } = $props();
 
   const library: { id: "all" | "review" | "nodate" | "nogps" | "duplicates"; icon: string }[] = [
@@ -104,6 +105,9 @@
     <div class="scan-caption">
       {#if scan}{t.scanCounts(scan)}{:else if lastScan}{t.lastScan(when(lastScan.finished_at), lastScan.state)} · {t.scanCounts(lastScan)}{:else}{t.indexEmpty}{/if}
     </div>
+    {#if !scanning && (scan || lastScan)}
+      <button class="report-link" onclick={onReport}>{t.report.open} →</button>
+    {/if}
     {#if scanning}
       <div class="scan-current" title={scan?.current ?? ""}>{scan?.current?.split(/[\\/]/).pop() ?? ""}</div>
       <button class="tiny-button cancel" disabled={cancelling} onclick={onCancelScan}>{cancelling ? t.cancelling : t.cancel}</button>
@@ -149,4 +153,5 @@
   .scan-caption { margin-top: 9px; font-size: 10px; color: var(--muted); line-height: 1.4; }
   .scan-current { margin-top: 5px; font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cancel { margin-top: 9px; width: 100%; }
+  .report-link { margin-top: 7px; border: 0; background: transparent; padding: 0; color: var(--accent-strong); font-size: 10px; font-weight: 700; }
 </style>

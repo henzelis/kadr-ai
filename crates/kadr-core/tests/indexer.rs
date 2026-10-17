@@ -530,3 +530,33 @@ fn unknown_duration_never_hides_a_video() {
     // The AAE still belongs to the photo.
     assert_eq!(by_name(&rows, "IMG_0001.JPG").companions.len(), 1);
 }
+
+#[test]
+fn scan_report_explains_every_skipped_file() {
+    let mut e = env();
+    fs::write(e.lib.join("Фото/notes.txt"), b"x").unwrap();
+    fs::write(e.lib.join("Фото/layers.PSD"), b"x").unwrap();
+    fs::write(e.lib.join("Фото/more.psd"), b"x").unwrap();
+    fs::create_dir_all(e.lib.join("$RECYCLE.BIN")).unwrap();
+    fs::write(e.lib.join("$RECYCLE.BIN/old.jpg"), b"\xFF\xD8\xFF").unwrap();
+    scan(&mut e, &Helpers::default());
+    let r = e.db.scan_report(None).unwrap().unwrap();
+    assert_eq!(r.summary.found, 13);
+    assert_eq!(r.in_library + r.companions, 13);
+    let psd = r
+        .not_media_by_extension
+        .iter()
+        .find(|x| x.extension == "psd")
+        .unwrap();
+    assert_eq!(psd.count, 2);
+    assert!(
+        r.not_media_by_extension
+            .iter()
+            .any(|x| x.extension == "txt")
+    );
+    assert!(
+        r.issues
+            .iter()
+            .any(|i| i.kind == "system_dir" && i.path.ends_with("$RECYCLE.BIN"))
+    );
+}

@@ -8,6 +8,7 @@
   import Gallery from "$lib/components/Gallery.svelte";
   import Inspector from "$lib/components/Inspector.svelte";
   import PlanPreview from "$lib/components/PlanPreview.svelte";
+  import ScanReportDialog from "$lib/components/ScanReportDialog.svelte";
   import SettingsDialog from "$lib/components/SettingsDialog.svelte";
   import Sidebar, { type Section } from "$lib/components/Sidebar.svelte";
   import Titlebar from "$lib/components/Titlebar.svelte";
@@ -41,6 +42,7 @@
   let scanning = $state(false);
   let cancelling = $state(false);
   let settingsOpen = $state(false);
+  let reportOpen = $state(false);
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -235,7 +237,7 @@
   <div class="layout" class:no-inspector={section === "plan" || section === "history"}>
     <Sidebar {section} {counts} {folders} {scan} {lastScan} {scanning} {cancelling}
       onSelect={(s) => { section = s; selected = new Set(); }}
-      onAddSources={addSources} onRemoveSource={removeSource} onChangeDestination={changeDestination} onCancelScan={stopScan} />
+      onAddSources={addSources} onRemoveSource={removeSource} onChangeDestination={changeDestination} onCancelScan={stopScan} onReport={() => (reportOpen = true)} />
 
     <main class="main" bind:this={mainEl}>
       <div class="main-header">
@@ -318,6 +320,10 @@
 {#if settingsOpen && settings}
   <SettingsDialog {settings} onClose={() => (settingsOpen = false)} onLibraryChanged={() => { void refreshCounts(); void library.refreshLoaded(); }}
     onSaved={(s) => { settings = s; applyTheme(s); settingsOpen = false; notify(t.settingsDialog.saved); void refreshCounts(); void library.refreshLoaded(); }} />
+{/if}
+
+{#if reportOpen}
+  <ScanReportDialog onClose={() => (reportOpen = false)} />
 {/if}
 
 <div class="toast" class:show={toast !== null} role="status" aria-live="polite">{toast ?? ""}</div>

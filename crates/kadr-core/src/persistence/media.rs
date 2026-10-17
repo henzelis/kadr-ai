@@ -113,6 +113,36 @@ pub fn search_text(
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ExtensionCount {
+    pub extension: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanIssue {
+    pub path: String,
+    /// `root_unavailable`, `read_error`, `walk_error`, `system_dir`, `symlink`, `excluded`.
+    pub kind: String,
+    pub message: Option<String>,
+}
+
+/// Everything a user needs to see why a file is or is not in the library.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanReport {
+    pub summary: LastScan,
+    /// Files shown in the library (all scans so far).
+    pub in_library: u64,
+    /// Sidecars and Live Photo videos kept with their photo, not shown alone.
+    pub companions: u64,
+    /// Indexed earlier but not found by the last complete scan.
+    pub missing: u64,
+    /// Files skipped because they are not photos or videos, by extension.
+    pub not_media_by_extension: Vec<ExtensionCount>,
+    /// Skipped folders and links, unreadable files (first 2000).
+    pub issues: Vec<ScanIssue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct LastScan {
     pub job_id: i64,
     pub finished_at: i64,
@@ -405,6 +435,83 @@ impl Db {
             params![id, state, now_ms(), error_detail],
         )?;
         Ok(())
+    }
+
+    /// What a scan saw and skipped, for the scan report. `job_id` defaults to
+    /// the latest finished scan.
+    pub fn scan_report(&self, job_id: Option<i64>) -> CoreResult<Option<ScanReport>> {
+        let job = match job_id {
+            Some(id) => id,
+            None => match self.last_scan()? {
+                Some(l) => l.job_id,
+                None => return Ok(None),
+            },
+        };
+        let summary = self
+            .conn
+            .query_row(
+                "SELECT id, finished_at, state, found, processed, unchanged, skipped, errors FROM scan_job WHERE id = ?1",
+                params![job],
+                |r| {
+                    let n = |i: usize| r.get::<_, i64>(i).map(|v| u64::try_from(v).unwrap_or(0));
+                    Ok(LastScan {
+                        job_id: r.get(0)?,
+                        finished_at: r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                        state: r.get(2)?,
+                        found: n(3)?,
+                        processed: n(4)?,
+                        unchanged: n(5)?,
+                        skipped: n(6)?,
+                        errors: n(7)?,
+                    })
+                },
+            )
+            .optional()?;
+        let Some(summary) = summary else {
+            return Ok(None);
+        };
+        let count = |sql: &str| -> CoreResult<u64> {
+            let n: i64 = self.conn.query_row(sql, [], |r| r.get(0))?;
+            Ok(u64::try_from(n).unwrap_or(0))
+        };
+        let mut by_ext = self.conn.prepare(
+            "SELECT message, COUNT(*) FROM scan_issue WHERE job_id = ?1 AND kind = 'not_media'
+             GROUP BY message ORDER BY COUNT(*) DESC, message",
+        )?;
+        let not_media_by_extension = by_ext
+            .query_map(params![job], |r| {
+                Ok(ExtensionCount {
+                    extension: r.get(0)?,
+                    count: u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        let mut issues_stmt = self.conn.prepare(
+            "SELECT path, kind, message FROM scan_issue WHERE job_id = ?1 AND kind <> 'not_media'
+             ORDER BY CASE kind WHEN 'root_unavailable' THEN 0 WHEN 'read_error' THEN 1 WHEN 'walk_error' THEN 2 ELSE 3 END, path
+             LIMIT 2000",
+        )?;
+        let issues = issues_stmt
+            .query_map(params![job], |r| {
+                Ok(ScanIssue {
+                    path: r.get(0)?,
+                    kind: r.get(1)?,
+                    message: r.get(2)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(Some(ScanReport {
+            summary,
+            in_library: count(
+                "SELECT COUNT(*) FROM media_item WHERE is_sidecar = 0 AND is_missing = 0",
+            )?,
+            companions: count(
+                "SELECT COUNT(*) FROM media_item WHERE is_sidecar = 1 AND is_missing = 0",
+            )?,
+            missing: count("SELECT COUNT(*) FROM media_item WHERE is_missing = 1")?,
+            not_media_by_extension,
+            issues,
+        }))
     }
 
     /// The most recent finished scan, for "last updated" in the UI.
