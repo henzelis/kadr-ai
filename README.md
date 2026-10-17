@@ -4,10 +4,19 @@
 за схемою `Рік / Місяць / Місце`. Усе працює локально: файли й координати
 нікуди не надсилаються, мережа вимкнена.
 
-> **Стан: етап B (індекс і метадані).** Kadr сканує вибрані папки, читає дати й
-> GPS (ExifTool, FFprobe або вбудований EXIF-читач), визначає місто чи область за
-> офлайн-геобазою і показує файли, що потребують перевірки. Мініатюри — етап C,
-> план сортування — етап D, копіювання/переміщення — етап E.
+> **Стан: етап C (галерея).** Kadr сканує вибрані папки, читає дати й GPS,
+> визначає місто чи область за офлайн-геобазою, показує мініатюри (зокрема
+> HEIC, RAW і відео), дозволяє вручну задати дату й місце, тримає разом
+> пов'язані файли (AAE, XMP, Live Photo) і групує точні дублікати. План
+> сортування — етап D, копіювання/переміщення — етап E.
+
+## Встановлення (Windows)
+
+Інсталятор збирається автоматично (GitHub Actions → **Windows installer** →
+артефакт `kadr-windows-installer`). Він містить усе потрібне: ExifTool,
+FFmpeg/FFprobe, офлайн-геобазу; WebView2 доставляється автоматично, якщо його
+немає. Окремо нічого встановлювати не треба. Інсталятор поки не підписаний,
+тому Windows SmartScreen попросить підтвердити запуск.
 
 ## Стек
 
@@ -30,8 +39,9 @@ sudo apt install libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev \
   libayatana-appindicator3-dev librsvg2-dev libimage-exiftool-perl ffmpeg
 ```
 
-Windows: WebView2 (є в Windows 10/11), Visual Studio Build Tools з C++;
-ExifTool і FFmpeg — у `PATH` або шлях у налаштуваннях застосунку.
+Windows: WebView2 (є в Windows 10/11), Visual Studio Build Tools з C++.
+Для розробки ExifTool і FFmpeg беруться з `PATH` (в інсталятор вони вшиваються
+автоматично, див. `.github/workflows/windows-installer.yml`).
 
 ```sh
 pnpm install
@@ -84,7 +94,8 @@ crates/kadr-core/src/
   domain/          media_item, captured_date, location, sort_template, operation
   persistence/     db.rs, migrations/0001_init.sql
   services/        scanner, detect, metadata/ (exiftool, ffprobe, native_image,
-                   normalize), place, geocoder, indexer, process, tools
+                   normalize), place, geocoder, indexer, thumbnail, companions,
+                   process, tools
   settings.rs      налаштування з перевіркою
 src-tauri/src/
   commands/        settings, library, sources, scan, geobase

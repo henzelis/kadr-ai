@@ -207,7 +207,8 @@ pub struct MediaRow {
     pub location_source: LocationSource,
     pub place_status: PlaceStatus,
     pub metadata_status: MetadataStatus,
-    pub metadata_provider: Option<String>,
+    /// Helpers that actually read this file, e.g. `["exiftool 12.76"]`.
+    pub metadata_readers: Vec<String>,
     pub review_reasons: Vec<String>,
     pub warnings: Vec<String>,
     pub last_error: Option<String>,
@@ -252,7 +253,7 @@ const ROW_COLUMNS: &str = "m.id, m.path, m.file_name, m.extension, m.media_kind,
     m.detected_type, m.width, m.height, m.duration_ms, m.video_codec, m.audio_codec, \
     m.captured_at_raw, m.captured_at_local, m.timezone_offset_min, m.date_source, m.date_status, m.date_note, \
     m.latitude, m.longitude, m.altitude, m.place_label, m.location_source, m.place_status, \
-    m.metadata_status, m.metadata_provider, m.review_reasons, m.warnings, m.last_error, m.mtime";
+    m.metadata_status, json_extract(m.metadata_json, '$.providers'), m.review_reasons, m.warnings, m.last_error, m.mtime";
 
 fn json_list(s: Option<String>) -> Vec<String> {
     s.and_then(|s| serde_json::from_str(&s).ok())
@@ -302,7 +303,7 @@ fn read_row(r: &Row<'_>) -> rusqlite::Result<MediaRow> {
         location_source: enum_parse(&r.get::<_, String>(23)?).unwrap_or(LocationSource::None),
         place_status: enum_parse(&r.get::<_, String>(24)?).unwrap_or(PlaceStatus::NoGps),
         metadata_status: enum_parse(&r.get::<_, String>(25)?).unwrap_or(MetadataStatus::NotRead),
-        metadata_provider: r.get(26)?,
+        metadata_readers: json_list(r.get(26)?),
         review_reasons: json_list(r.get(27)?),
         warnings: json_list(r.get(28)?),
         last_error: r.get(29)?,

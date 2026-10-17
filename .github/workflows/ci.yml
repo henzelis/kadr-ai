@@ -56,6 +56,16 @@ jobs:
         run: cargo test --workspace -- --nocapture
         # Helper-based tests print a NOTICE and pass when a helper is missing;
         # fail CI instead, so they really run on both systems.
+      - name: HEIC and AVIF thumbnails through FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/samples"
+          curl -fsSL -o "$RUNNER_TEMP/samples/example.heic" https://github.com/strukturag/libheif/raw/v1.19.5/examples/example.heic
+          curl -fsSL -o "$RUNNER_TEMP/samples/example.avif" https://github.com/strukturag/libheif/raw/v1.19.5/examples/example.avif
+          KADR_FFMPEG=ffmpeg KADR_SAMPLES="$RUNNER_TEMP/samples" cargo test -p kadr-core --test thumbs_real -- --nocapture 2>&1 | tee thumbs.log
+          ! grep -q NOTICE thumbs.log
+
       - name: Helper-based tests really ran
         shell: bash
         run: |

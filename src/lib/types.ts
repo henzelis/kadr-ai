@@ -105,7 +105,7 @@ export interface MediaView {
   location_source: LocationSource;
   place_status: PlaceStatus;
   metadata_status: MetadataStatus;
-  metadata_provider: string | null;
+  metadata_readers: string[];
   review_reasons: string[];
   warnings: string[];
   last_error: string | null;

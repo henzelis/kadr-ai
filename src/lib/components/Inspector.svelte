@@ -166,7 +166,7 @@
         <div class="detail-row"><div class="detail-label">{t.codecs}</div><div class="detail-value">{[item.video_codec, item.audio_codec].filter(Boolean).join(" · ")}</div></div>
       {/if}
       <div class="detail-row"><div class="detail-label">{t.metadataBy}</div>
-        <div class="detail-value">{t.metadataStatus[item.metadata_status]}{item.metadata_provider && !demo ? ` · ${item.metadata_provider.split("|").filter((p) => p !== "-" && !/^[ph]\d/.test(p)).join(", ")}` : ""}</div></div>
+        <div class="detail-value">{t.metadataStatus[item.metadata_status]}{item.metadata_readers.length ? ` · ${item.metadata_readers.join(", ")}` : ""}</div></div>
     </div>
 
     {#if destination}
