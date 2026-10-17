@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::location::PlaceGranularity;
+use crate::domain::location::{Language, PlaceGranularity};
 use crate::domain::operation::ConflictPolicy;
 use crate::domain::sort_template::{DEFAULT_TEMPLATE, MonthFormat};
 use crate::errors::{CoreError, CoreResult};
@@ -27,6 +27,9 @@ pub enum Theme {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
+    /// Language of folder and place names in the archive. `None` until the
+    /// app sets it to the interface language on first start.
+    pub folder_language: Option<Language>,
     /// Root of the sorted archive. Never scanned as a source.
     pub destination_root: Option<String>,
     pub folder_template: String,
@@ -61,11 +64,12 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            folder_language: None,
             destination_root: None,
             folder_template: DEFAULT_TEMPLATE.to_owned(),
             month_format: MonthFormat::default(),
-            unknown_date_label: "Невідома дата".to_owned(),
-            unknown_place_label: "Без геолокації".to_owned(),
+            unknown_date_label: UNKNOWN_DATE_UK.to_owned(),
+            unknown_place_label: UNKNOWN_PLACE_UK.to_owned(),
             place_granularity: PlaceGranularity::default(),
             coordinates_as_place: false,
             filesystem_date_fallback: false,
@@ -84,7 +88,35 @@ impl Default for AppSettings {
     }
 }
 
+pub const UNKNOWN_DATE_UK: &str = "Невідома дата";
+pub const UNKNOWN_DATE_EN: &str = "Unknown date";
+pub const UNKNOWN_PLACE_UK: &str = "Без геолокації";
+pub const UNKNOWN_PLACE_EN: &str = "No location";
+
 impl AppSettings {
+    pub fn language(&self) -> Language {
+        self.folder_language.unwrap_or_default()
+    }
+
+    /// Folder for files without a date. The built-in Ukrainian or English
+    /// default follows the folder language; a name the user typed is kept.
+    pub fn unknown_date_folder(&self) -> &str {
+        match (self.unknown_date_label.as_str(), self.language()) {
+            (UNKNOWN_DATE_UK | UNKNOWN_DATE_EN, Language::Uk) => UNKNOWN_DATE_UK,
+            (UNKNOWN_DATE_UK | UNKNOWN_DATE_EN, Language::En) => UNKNOWN_DATE_EN,
+            (custom, _) => custom,
+        }
+    }
+
+    /// Folder for files without a known place (same rule as above).
+    pub fn unknown_place_folder(&self) -> &str {
+        match (self.unknown_place_label.as_str(), self.language()) {
+            (UNKNOWN_PLACE_UK | UNKNOWN_PLACE_EN, Language::Uk) => UNKNOWN_PLACE_UK,
+            (UNKNOWN_PLACE_UK | UNKNOWN_PLACE_EN, Language::En) => UNKNOWN_PLACE_EN,
+            (custom, _) => custom,
+        }
+    }
+
     /// Whether going from `self` to `next` changes dates or places that are
     /// derived from stored metadata, so the index must be re-normalized.
     pub fn affects_derivation(&self, next: &Self) -> bool {
@@ -92,6 +124,7 @@ impl AppSettings {
             || self.place_granularity != next.place_granularity
             || self.coordinates_as_place != next.coordinates_as_place
             || self.offline_geocoding != next.offline_geocoding
+            || self.language() != next.language()
     }
 
     /// Rejects values that would produce unsafe or nonsensical folders.
@@ -101,10 +134,10 @@ impl AppSettings {
         validate_label("unknown_place_label", &self.unknown_place_label)?;
         validate_workers("metadata_workers", self.metadata_workers)?;
         validate_workers("thumbnail_workers", self.thumbnail_workers)?;
-        if !self.folder_template.contains("{filename}") {
+        if crate::domain::sort_template::Template::parse(&self.folder_template).is_err() {
             return Err(CoreError::InvalidSetting {
                 field: "folder_template",
-                reason: "template must end with {filename}".to_owned(),
+                reason: "template must be folders, then {filename}".to_owned(),
             });
         }
         if self.network_enabled {

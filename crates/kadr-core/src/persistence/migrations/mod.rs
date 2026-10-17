@@ -5,4 +5,5 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("0001_init.sql"),
     include_str!("0002_scan.sql"),
     include_str!("0003_companions.sql"),
+    include_str!("0004_plans.sql"),
 ];

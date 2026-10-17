@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::metadata::normalize::PlaceText;
-use crate::domain::location::{GeoPoint, LocationSource, PlaceGranularity, PlaceStatus};
+use crate::domain::location::{GeoPoint, Language, LocationSource, PlaceGranularity, PlaceStatus};
 
 /// Administrative names for a point, broadest last. Any level may be missing.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct GeoPlace {
 pub trait ReverseGeocoder: Send + Sync {
     /// Version of the geobase; cached results are tied to it.
     fn version(&self) -> &str;
-    fn lookup(&self, point: GeoPoint) -> Option<GeoPlace>;
+    fn lookup(&self, point: GeoPoint, lang: Language) -> Option<GeoPlace>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +56,8 @@ pub struct PlaceInputs<'a> {
     pub gps: Option<GeoPoint>,
     pub granularity: PlaceGranularity,
     pub coordinates_as_place: bool,
+    /// Language of names taken from the geobase.
+    pub language: Language,
 }
 
 pub fn resolve(inputs: &PlaceInputs<'_>, geocoder: Option<&dyn ReverseGeocoder>) -> ResolvedPlace {
@@ -85,7 +87,7 @@ pub fn resolve(inputs: &PlaceInputs<'_>, geocoder: Option<&dyn ReverseGeocoder>)
         };
     }
     if let (Some(point), Some(geo)) = (inputs.gps, geocoder)
-        && let Some(found) = geo.lookup(point)
+        && let Some(found) = geo.lookup(point, inputs.language)
         && let Some(label) = pick_level(
             found.city.as_deref(),
             found.region.as_deref(),
@@ -124,7 +126,7 @@ mod tests {
         fn version(&self) -> &str {
             "test"
         }
-        fn lookup(&self, _: GeoPoint) -> Option<GeoPlace> {
+        fn lookup(&self, _: GeoPoint, _: Language) -> Option<GeoPlace> {
             self.0.clone()
         }
     }
@@ -140,6 +142,7 @@ mod tests {
             gps,
             granularity: PlaceGranularity::City,
             coordinates_as_place: false,
+            language: Language::Uk,
         }
     }
 

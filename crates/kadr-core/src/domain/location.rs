@@ -45,6 +45,15 @@ pub enum PlaceStatus {
     NoGps,
 }
 
+/// Language of folder names and place names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+    #[default]
+    Uk,
+    En,
+}
+
 /// Which administrative level names the place folder. When the chosen level
 /// is unknown for a point, the next broader one is used (city → region →
 /// country), the way the iPhone Photos app falls back.

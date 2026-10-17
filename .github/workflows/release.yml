@@ -14,8 +14,8 @@ permissions:
   contents: write
 
 env:
-  GEOBASE_TAG: geobase-2026-10-17
-  GEOBASE_SHA256: c00a42ff504268be68f72524acde7bebfc58042f472aff589cb2e6af05caa89a
+  GEOBASE_TAG: geobase-2026-10-17.2
+  GEOBASE_SHA256: 09d03346486410954c5200aa6fe7bd14cbef37f74f7a5e2eaa4a54fcfe1271e5
   DEPS_TAG: deps-2026-10-17
   FFMPEG_TAG: deps-ffmpeg-8.1.3
   GH_TOKEN: ${{ github.token }}

@@ -288,7 +288,7 @@ const ROW_COLUMNS: &str = "m.id, m.path, m.file_name, m.extension, m.media_kind,
 
 /// A stored JSON array of notes; plain strings from older versions become
 /// `text` notes.
-fn json_notes(s: Option<String>) -> Vec<Note> {
+pub(crate) fn json_notes(s: Option<String>) -> Vec<Note> {
     let values: Vec<serde_json::Value> = s
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();

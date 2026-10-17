@@ -7,7 +7,7 @@
 //! `<geonames-dir>` must contain `cities1000.txt`, `admin1CodesASCII.txt`,
 //! `countryInfo.txt` and `alternateNamesV2.txt` from
 //! <https://download.geonames.org/export/dump/>. Names are taken in Ukrainian
-//! where GeoNames has them, otherwise the GeoNames default name is kept.
+//! and English where GeoNames has them, otherwise the GeoNames default name.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -40,7 +40,7 @@ struct City {
 }
 
 #[derive(Default)]
-struct UkName {
+struct Ranked {
     name: String,
     rank: u8,
 }
@@ -123,8 +123,9 @@ fn run(dir: &Path, out: &Path, version: &str) -> Result<(), String> {
         }
     }
 
-    // Ukrainian names: preferred > short (countries) > other; never
-    // historic, colloquial or Latin transliterations tagged "uk".
+    // Names per language: preferred > short (countries) > other; never
+    // historic or colloquial; Ukrainian ones must be written in Cyrillic
+    // (GeoNames also tags Latin transliterations as "uk").
     let short_wins: HashSet<i64> = countries.iter().map(|c| c.2).collect();
     let wanted: HashSet<i64> = cities
         .iter()
@@ -132,10 +133,11 @@ fn run(dir: &Path, out: &Path, version: &str) -> Result<(), String> {
         .chain(admins.iter().map(|a| a.2))
         .chain(short_wins.iter().copied())
         .collect();
-    let mut uk: HashMap<i64, UkName> = HashMap::new();
+    let mut uk: HashMap<i64, Ranked> = HashMap::new();
+    let mut en: HashMap<i64, Ranked> = HashMap::new();
     for line in lines(&dir.join("alternateNamesV2.txt")).map_err(err("alternateNamesV2.txt"))? {
         let f: Vec<&str> = line.split('\t').collect();
-        if f.len() < 8 || f[2] != "uk" {
+        if f.len() < 8 || (f[2] != "uk" && f[2] != "en") {
             continue;
         }
         let Ok(id) = f[1].parse::<i64>() else {
@@ -143,7 +145,8 @@ fn run(dir: &Path, out: &Path, version: &str) -> Result<(), String> {
         };
         let (name, preferred, short, colloquial, historic) =
             (f[3], f[4] == "1", f[5] == "1", f[6] == "1", f[7] == "1");
-        if !wanted.contains(&id) || colloquial || historic || !is_cyrillic(name) {
+        let ukrainian = f[2] == "uk";
+        if !wanted.contains(&id) || colloquial || historic || ukrainian != is_cyrillic(name) {
             continue;
         }
         let rank = match (preferred, short && short_wins.contains(&id)) {
@@ -151,26 +154,35 @@ fn run(dir: &Path, out: &Path, version: &str) -> Result<(), String> {
             (true, _) => 2,
             _ => 1,
         };
-        let slot = uk.entry(id).or_default();
+        let slot = if ukrainian {
+            uk.entry(id)
+        } else {
+            en.entry(id)
+        }
+        .or_default();
         if rank > slot.rank {
-            *slot = UkName {
-                name: tidy(name),
+            *slot = Ranked {
+                name: if ukrainian {
+                    tidy(name)
+                } else {
+                    name.to_owned()
+                },
                 rank,
             };
         }
     }
-    let name_of = |id: i64, fallback: &str| {
-        uk.get(&id)
+    let pick = |map: &HashMap<i64, Ranked>, id: i64, fallback: &str| {
+        map.get(&id)
             .map_or_else(|| fallback.to_owned(), |n| n.name.clone())
     };
 
     let w = GeobaseWriter::create(out, version, SOURCE).map_err(|e| e.to_string())?;
     for (code, name, id) in &countries {
-        w.country(code, &name_of(*id, name))
+        w.country(code, &pick(&uk, *id, name), &pick(&en, *id, name))
             .map_err(|e| e.to_string())?;
     }
     for (key, name, id) in &admins {
-        w.admin1(key, &name_of(*id, name))
+        w.admin1(key, &pick(&uk, *id, name), &pick(&en, *id, name))
             .map_err(|e| e.to_string())?;
     }
     let mut translated = 0;
@@ -183,7 +195,7 @@ fn run(dir: &Path, out: &Path, version: &str) -> Result<(), String> {
             c.id,
             c.lat,
             c.lon,
-            &name_of(c.id, &c.name),
+            [&pick(&uk, c.id, &c.name), &pick(&en, c.id, &c.name)],
             &c.country,
             (!c.admin1.is_empty()).then_some(admin.as_str()),
             c.population,

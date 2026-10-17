@@ -284,6 +284,7 @@ pub fn derive(
             gps: normalized.gps,
             granularity: settings.place_granularity,
             coordinates_as_place: settings.coordinates_as_place,
+            language: settings.language(),
         },
         if settings.offline_geocoding {
             geocoder

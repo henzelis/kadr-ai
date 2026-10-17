@@ -9,6 +9,8 @@
 //! - otherwise the region (oblast) of the nearest place within 60 km;
 //! - otherwise the country of the nearest place within 80 km;
 //! - otherwise nothing: the point stays "GPS present, place unknown".
+//!
+//! Names come in Ukrainian and English; the caller picks the language.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,7 +19,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 
 use super::place::{GeoPlace, ReverseGeocoder};
-use crate::domain::location::GeoPoint;
+use crate::domain::location::{GeoPoint, Language};
 use crate::errors::{CoreError, CoreResult};
 
 const CELL_DEG: f64 = 0.25;
@@ -27,8 +29,9 @@ const COUNTRY_RADIUS_KM: f64 = 80.0;
 const ABSORB_SHARE: f64 = 0.5;
 const EARTH_RADIUS_KM: f64 = 6371.0;
 
-/// Geobase schema version this build reads.
-pub const GEOBASE_FORMAT: &str = "1";
+/// Geobase format written by this build: names in Ukrainian and English.
+/// Format 1 (Ukrainian only) is still read; English then falls back to it.
+pub const GEOBASE_FORMAT: &str = "2";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GeobaseInfo {
@@ -38,10 +41,20 @@ pub struct GeobaseInfo {
     pub built_at: String,
 }
 
+/// [Ukrainian, English]
+type Names = [String; 2];
+
+fn pick(names: &Names, lang: Language) -> String {
+    match lang {
+        Language::Uk => names[0].clone(),
+        Language::En => names[1].clone(),
+    }
+}
+
 struct Place {
     lat: f64,
     lon: f64,
-    name: String,
+    name: Names,
     country: u16,
     admin1: Option<u32>,
     population: u64,
@@ -52,8 +65,8 @@ pub struct OfflineGeocoder {
     info: GeobaseInfo,
     places: Vec<Place>,
     grid: HashMap<(i32, i32), Vec<u32>>,
-    countries: Vec<String>,
-    admins: Vec<String>,
+    countries: Vec<Names>,
+    admins: Vec<Names>,
 }
 
 /// How far from its centre a town still names a photo: 4 km for a village,
@@ -84,14 +97,36 @@ fn meta(conn: &Connection, key: &str) -> CoreResult<Option<String>> {
         .optional()?)
 }
 
+/// `(key, [uk, en])` rows of a small table.
+fn named_rows(
+    conn: &Connection,
+    table: &str,
+    key: &str,
+    en_col: &str,
+) -> CoreResult<Vec<(String, Names)>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {key}, name, {en_col} FROM {table} ORDER BY {key}"
+    ))?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            [r.get::<_, String>(1)?, r.get::<_, String>(2)?],
+        ))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
 impl OfflineGeocoder {
     pub fn open(path: &Path) -> CoreResult<Self> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let invalid = |reason: &str| CoreError::InvalidGeobase(reason.to_owned());
         let format = meta(&conn, "format").map_err(|_| invalid("not a Kadr geobase"))?;
-        if format.as_deref() != Some(GEOBASE_FORMAT) {
-            return Err(invalid("unsupported geobase format"));
-        }
+        // Format 1 has one name column; it serves both languages.
+        let en_col = match format.as_deref() {
+            Some("2") => "name_en",
+            Some("1") => "name",
+            _ => return Err(invalid("unsupported geobase format")),
+        };
         let info = GeobaseInfo {
             version: meta(&conn, "version")?.unwrap_or_default(),
             source: meta(&conn, "source")?.unwrap_or_default(),
@@ -101,41 +136,30 @@ impl OfflineGeocoder {
 
         let mut country_ids: HashMap<String, u16> = HashMap::new();
         let mut countries = Vec::new();
-        {
-            let mut stmt = conn.prepare("SELECT code, name FROM country ORDER BY code")?;
-            let rows =
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-            for row in rows {
-                let (code, name) = row?;
-                country_ids.insert(code, u16::try_from(countries.len()).unwrap_or(u16::MAX));
-                countries.push(name);
-            }
+        for (code, names) in named_rows(&conn, "country", "code", en_col)? {
+            country_ids.insert(code, u16::try_from(countries.len()).unwrap_or(u16::MAX));
+            countries.push(names);
         }
         let mut admin_ids: HashMap<String, u32> = HashMap::new();
         let mut admins = Vec::new();
-        {
-            let mut stmt = conn.prepare("SELECT key, name FROM admin1 ORDER BY key")?;
-            let rows =
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-            for row in rows {
-                let (key, name) = row?;
-                admin_ids.insert(key, u32::try_from(admins.len()).unwrap_or(u32::MAX));
-                admins.push(name);
-            }
+        for (key, names) in named_rows(&conn, "admin1", "key", en_col)? {
+            admin_ids.insert(key, u32::try_from(admins.len()).unwrap_or(u32::MAX));
+            admins.push(names);
         }
 
         let mut places = Vec::new();
         let mut grid: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
-        let mut stmt =
-            conn.prepare("SELECT lat, lon, name, country, admin1, population FROM place")?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT lat, lon, name, {en_col}, country, admin1, population FROM place"
+        ))?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, f64>(0)?,
                 r.get::<_, f64>(1)?,
-                r.get::<_, String>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, Option<String>>(4)?,
-                r.get::<_, i64>(5)?,
+                [r.get::<_, String>(2)?, r.get::<_, String>(3)?],
+                r.get::<_, String>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, i64>(6)?,
             ))
         })?;
         for row in rows {
@@ -145,14 +169,15 @@ impl OfflineGeocoder {
             };
             let index = u32::try_from(places.len()).unwrap_or(u32::MAX);
             grid.entry(cell(lat, lon)).or_default().push(index);
+            let population = u64::try_from(population).unwrap_or(0);
             places.push(Place {
                 lat,
                 lon,
                 name,
                 country,
                 admin1: admin1.and_then(|a| admin_ids.get(&a).copied()),
-                population: u64::try_from(population).unwrap_or(0),
-                reach_km: reach_km(u64::try_from(population).unwrap_or(0)),
+                population,
+                reach_km: reach_km(population),
             });
         }
         if places.is_empty() {
@@ -197,7 +222,7 @@ impl ReverseGeocoder for OfflineGeocoder {
         &self.info.version
     }
 
-    fn lookup(&self, point: GeoPoint) -> Option<GeoPlace> {
+    fn lookup(&self, point: GeoPoint, lang: Language) -> Option<GeoPlace> {
         let (lat, lon) = (point.latitude, point.longitude);
         let covering: Vec<(&Place, f64)> = self
             .near(lat, lon, 30.0)
@@ -228,14 +253,14 @@ impl ReverseGeocoder for OfflineGeocoder {
         let region = anchor
             .and_then(|p| p.admin1)
             .and_then(|a| self.admins.get(a as usize))
-            .cloned();
+            .map(|n| pick(n, lang));
         let country_place = anchor.or_else(|| nearest(COUNTRY_RADIUS_KM))?;
         let country = self
             .countries
             .get(usize::from(country_place.country))
-            .cloned();
+            .map(|n| pick(n, lang));
         Some(GeoPlace {
-            city: city.map(|p| p.name.clone()),
+            city: city.map(|p| pick(&p.name, lang)),
             region,
             country,
         })
@@ -257,11 +282,11 @@ impl GeobaseWriter {
             "PRAGMA journal_mode = OFF;
              PRAGMA synchronous = OFF;
              CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-             CREATE TABLE country (code TEXT PRIMARY KEY, name TEXT NOT NULL);
-             CREATE TABLE admin1 (key TEXT PRIMARY KEY, name TEXT NOT NULL);
+             CREATE TABLE country (code TEXT PRIMARY KEY, name TEXT NOT NULL, name_en TEXT NOT NULL);
+             CREATE TABLE admin1 (key TEXT PRIMARY KEY, name TEXT NOT NULL, name_en TEXT NOT NULL);
              CREATE TABLE place (id INTEGER PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL,
-                                 name TEXT NOT NULL, country TEXT NOT NULL, admin1 TEXT,
-                                 population INTEGER NOT NULL);
+                                 name TEXT NOT NULL, name_en TEXT NOT NULL, country TEXT NOT NULL,
+                                 admin1 TEXT, population INTEGER NOT NULL);
              BEGIN;",
         )?;
         let built_at = chrono::Utc::now().format("%Y-%m-%d").to_string();
@@ -276,34 +301,39 @@ impl GeobaseWriter {
         Ok(Self { conn })
     }
 
-    pub fn country(&self, code: &str, name: &str) -> CoreResult<()> {
+    pub fn country(&self, code: &str, name_uk: &str, name_en: &str) -> CoreResult<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO country VALUES (?1, ?2)",
-            [code, name],
+            "INSERT OR REPLACE INTO country VALUES (?1, ?2, ?3)",
+            [code, name_uk, name_en],
         )?;
         Ok(())
     }
 
-    pub fn admin1(&self, key: &str, name: &str) -> CoreResult<()> {
-        self.conn
-            .execute("INSERT OR REPLACE INTO admin1 VALUES (?1, ?2)", [key, name])?;
+    pub fn admin1(&self, key: &str, name_uk: &str, name_en: &str) -> CoreResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO admin1 VALUES (?1, ?2, ?3)",
+            [key, name_uk, name_en],
+        )?;
         Ok(())
     }
 
+    /// `names` is `[Ukrainian, English]`.
     #[allow(clippy::too_many_arguments)]
     pub fn place(
         &self,
         id: i64,
         lat: f64,
         lon: f64,
-        name: &str,
+        names: [&str; 2],
         country: &str,
         admin1: Option<&str>,
         population: i64,
     ) -> CoreResult<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO place VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            rusqlite::params![id, lat, lon, name, country, admin1, population],
+            "INSERT OR REPLACE INTO place VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                id, lat, lon, names[0], names[1], country, admin1, population
+            ],
         )?;
         Ok(())
     }
@@ -320,28 +350,97 @@ mod tests {
 
     fn sample(dir: &Path) -> OfflineGeocoder {
         let path = dir.join("geo.sqlite3");
-        let w = GeobaseWriter::create(&path, "test-1", "test data").unwrap();
-        w.country("UA", "Україна").unwrap();
-        w.country("MD", "Молдова").unwrap();
-        w.admin1("UA.09", "Івано-Франківська область").unwrap();
-        w.admin1("UA.12", "Київ").unwrap();
-        w.place(1, 50.4501, 30.5234, "Київ", "UA", Some("UA.12"), 2_900_000)
-            .unwrap();
-        w.place(2, 48.4590, 24.5560, "Яремче", "UA", Some("UA.09"), 7_800)
-            .unwrap();
-        w.place(3, 48.2500, 24.5600, "Ворохта", "UA", Some("UA.09"), 4_000)
-            .unwrap();
-        w.place(4, 50.5200, 30.4500, "Мале село", "UA", Some("UA.12"), 1_000)
-            .unwrap();
-        w.place(5, 47.0105, 28.8638, "Кишинів", "MD", None, 640_000)
-            .unwrap();
-        w.place(6, 48.8534, 2.3488, "Париж", "FR", None, 2_138_551)
-            .unwrap();
-        w.place(7, 48.8520, 2.2700, "Paris 16 Passy", "FR", None, 159_386)
-            .unwrap();
-        w.place(8, 50.5110, 30.7909, "Бровари", "UA", Some("UA.12"), 100_000)
-            .unwrap();
-        w.country("FR", "Франція").unwrap();
+        let w = GeobaseWriter::create(&path, "test-2", "test data").unwrap();
+        w.country("UA", "Україна", "Ukraine").unwrap();
+        w.country("MD", "Молдова", "Moldova").unwrap();
+        w.country("FR", "Франція", "France").unwrap();
+        w.admin1(
+            "UA.09",
+            "Івано-Франківська область",
+            "Ivano-Frankivsk Oblast",
+        )
+        .unwrap();
+        w.admin1("UA.12", "Київ", "Kyiv City").unwrap();
+        w.place(
+            1,
+            50.4501,
+            30.5234,
+            ["Київ", "Kyiv"],
+            "UA",
+            Some("UA.12"),
+            2_900_000,
+        )
+        .unwrap();
+        w.place(
+            2,
+            48.4590,
+            24.5560,
+            ["Яремче", "Yaremche"],
+            "UA",
+            Some("UA.09"),
+            7_800,
+        )
+        .unwrap();
+        w.place(
+            3,
+            48.2500,
+            24.5600,
+            ["Ворохта", "Vorokhta"],
+            "UA",
+            Some("UA.09"),
+            4_000,
+        )
+        .unwrap();
+        w.place(
+            4,
+            50.5200,
+            30.4500,
+            ["Мале село", "Small village"],
+            "UA",
+            Some("UA.12"),
+            1_000,
+        )
+        .unwrap();
+        w.place(
+            5,
+            47.0105,
+            28.8638,
+            ["Кишинів", "Chisinau"],
+            "MD",
+            None,
+            640_000,
+        )
+        .unwrap();
+        w.place(
+            6,
+            48.8534,
+            2.3488,
+            ["Париж", "Paris"],
+            "FR",
+            None,
+            2_138_551,
+        )
+        .unwrap();
+        w.place(
+            7,
+            48.8520,
+            2.2700,
+            ["Paris 16 Passy", "Paris 16 Passy"],
+            "FR",
+            None,
+            159_386,
+        )
+        .unwrap();
+        w.place(
+            8,
+            50.5110,
+            30.7909,
+            ["Бровари", "Brovary"],
+            "UA",
+            Some("UA.12"),
+            100_000,
+        )
+        .unwrap();
         w.finish().unwrap();
         OfflineGeocoder::open(&path).unwrap()
     }
@@ -362,42 +461,81 @@ mod tests {
     fn town_region_country_fallbacks() {
         let dir = tempfile::tempdir().unwrap();
         let g = sample(dir.path());
+        let uk = Language::Uk;
         assert_eq!(g.info().places, 8);
         // A district listed as its own place is part of the big city.
         assert_eq!(
-            g.lookup(at(48.8584, 2.2945)).unwrap().city.as_deref(),
+            g.lookup(at(48.8584, 2.2945), uk).unwrap().city.as_deref(),
             Some("Париж")
         );
         // A real neighbouring town keeps its own name.
         assert_eq!(
-            g.lookup(at(50.5110, 30.7909)).unwrap().city.as_deref(),
+            g.lookup(at(50.5110, 30.7909), uk).unwrap().city.as_deref(),
             Some("Бровари")
         );
-
-        // In Yaremche.
-        let p = g.lookup(at(48.4594, 24.5513)).unwrap();
+        let p = g.lookup(at(48.4594, 24.5513), uk).unwrap();
         assert_eq!(
             (p.city.as_deref(), p.region.as_deref()),
             (Some("Яремче"), Some("Івано-Франківська область"))
         );
         // Mountains 20 km from any town: region only.
-        let p = g.lookup(at(48.16, 24.50)).unwrap();
+        let p = g.lookup(at(48.16, 24.50), uk).unwrap();
         assert_eq!(
             (p.city, p.region.as_deref()),
             (None, Some("Івано-Франківська область"))
         );
-        // Kyiv outskirts closer to a village centre than to Kyiv's centre, but
-        // well inside Kyiv's reach relative to the village's tiny one.
-        let p = g.lookup(at(50.50, 30.48)).unwrap();
-        assert_eq!(p.city.as_deref(), Some("Київ"));
-        // Moldova without admin regions: city and country.
-        let p = g.lookup(at(47.02, 28.86)).unwrap();
+        // Inside Kyiv's reach rather than the tiny village's.
+        assert_eq!(
+            g.lookup(at(50.50, 30.48), uk).unwrap().city.as_deref(),
+            Some("Київ")
+        );
+        let p = g.lookup(at(47.02, 28.86), uk).unwrap();
         assert_eq!(
             (p.city.as_deref(), p.region, p.country.as_deref()),
             (Some("Кишинів"), None, Some("Молдова"))
         );
-        // Middle of the ocean: nothing.
-        assert!(g.lookup(at(0.0, -30.0)).is_none());
+        assert!(g.lookup(at(0.0, -30.0), uk).is_none());
+    }
+
+    #[test]
+    fn english_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = sample(dir.path());
+        let p = g.lookup(at(48.4594, 24.5513), Language::En).unwrap();
+        assert_eq!(
+            (p.city.as_deref(), p.region.as_deref(), p.country.as_deref()),
+            (
+                Some("Yaremche"),
+                Some("Ivano-Frankivsk Oblast"),
+                Some("Ukraine")
+            )
+        );
+    }
+
+    #[test]
+    fn reads_format_1_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v1.sqlite3");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO meta VALUES ('format', '1'), ('version', 'old');
+             CREATE TABLE country (code TEXT PRIMARY KEY, name TEXT NOT NULL);
+             INSERT INTO country VALUES ('UA', 'Україна');
+             CREATE TABLE admin1 (key TEXT PRIMARY KEY, name TEXT NOT NULL);
+             CREATE TABLE place (id INTEGER PRIMARY KEY, lat REAL, lon REAL, name TEXT, country TEXT, admin1 TEXT, population INTEGER);
+             INSERT INTO place VALUES (1, 50.45, 30.52, 'Київ', 'UA', NULL, 2900000);",
+        )
+        .unwrap();
+        drop(conn);
+        let g = OfflineGeocoder::open(&path).unwrap();
+        assert_eq!(
+            g.lookup(at(50.45, 30.52), Language::En)
+                .unwrap()
+                .city
+                .as_deref(),
+            Some("Київ")
+        );
     }
 
     #[test]

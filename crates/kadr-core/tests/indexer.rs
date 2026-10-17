@@ -367,10 +367,23 @@ fn offline_geobase_names_places_with_city_then_region() {
     let mut e = env();
     let geo_path = e._tmp.path().join("geo.sqlite3");
     let w = GeobaseWriter::create(&geo_path, "test", "test").unwrap();
-    w.country("UA", "Україна").unwrap();
-    w.admin1("UA.06", "Івано-Франківська область").unwrap();
-    w.place(1, 48.44886, 24.55335, "Яремче", "UA", Some("UA.06"), 8094)
-        .unwrap();
+    w.country("UA", "Україна", "Ukraine").unwrap();
+    w.admin1(
+        "UA.06",
+        "Івано-Франківська область",
+        "Ivano-Frankivsk Oblast",
+    )
+    .unwrap();
+    w.place(
+        1,
+        48.44886,
+        24.55335,
+        ["Яремче", "Yaremche"],
+        "UA",
+        Some("UA.06"),
+        8094,
+    )
+    .unwrap();
     w.finish().unwrap();
     let geo = OfflineGeocoder::open(&geo_path).unwrap();
 
@@ -559,4 +572,89 @@ fn scan_report_explains_every_skipped_file() {
             .iter()
             .any(|i| i.kind == "system_dir" && i.path.ends_with("$RECYCLE.BIN"))
     );
+}
+
+#[test]
+fn plan_from_the_index_never_touches_files() {
+    use kadr_core::domain::location::Language;
+    use kadr_core::domain::operation::OperationMode;
+    use kadr_core::persistence::plans::PlanFilter;
+    use kadr_core::services::planner::{PlanStatus, create_plan};
+
+    let Some(helpers) = real_helpers() else {
+        return;
+    };
+    let mut e = env();
+    scan(&mut e, &helpers);
+    let archive = e._tmp.path().join("Архів");
+    e.settings.destination_root = Some(archive.to_string_lossy().into_owned());
+    e.settings.folder_language = Some(Language::En);
+
+    let before: Vec<_> = walk_files(&e.lib);
+    let id = create_plan(&mut e.db, &e.settings, OperationMode::Copy).unwrap();
+    assert_eq!(
+        walk_files(&e.lib),
+        before,
+        "planning must not change sources"
+    );
+    assert!(!archive.exists(), "planning must not create the archive");
+
+    let s = e.db.plan_summary(id).unwrap().unwrap();
+    // 12 main files; the two identical PNGs → one duplicate.
+    assert_eq!(s.ready + s.duplicates + s.conflicts, 12);
+    assert_eq!(s.duplicates, 1);
+    // 11 ready main files + the AAE that travels with IMG_0001.JPG.
+    assert_eq!(s.included_files, 12);
+
+    let page = e.db.plan_items(id, PlanFilter::All, "", 0, 100).unwrap();
+    let dest = |name: &str| {
+        page.items
+            .iter()
+            .find(|r| r.source.ends_with(name))
+            .map(|r| r.destination.replace('\\', "/"))
+            .unwrap()
+    };
+    assert!(dest("exif_full.jpg").ends_with("/2025/08 - August/No location/exif_full.jpg"));
+    assert!(dest("no_metadata.png").contains("/Unknown date/No location/"));
+    assert!(dest("xmp_only.jpg").ends_with("/2023/05 - May/Львів/xmp_only.jpg"));
+    let photo = page
+        .items
+        .iter()
+        .find(|r| r.source.ends_with("IMG_0001.JPG"))
+        .unwrap();
+    assert_eq!(photo.companions.len(), 1);
+    assert!(photo.companions[0].destination.ends_with("IMG_0001.AAE"));
+
+    // Excluding a file excludes its companion too.
+    e.db.set_plan_included(id, &[photo.id], false).unwrap();
+    assert_eq!(e.db.plan_summary(id).unwrap().unwrap().included_files, 10);
+    let excluded =
+        e.db.plan_items(id, PlanFilter::Excluded, "", 0, 100)
+            .unwrap();
+    assert!(
+        excluded
+            .items
+            .iter()
+            .any(|r| r.source.ends_with("IMG_0001.JPG"))
+    );
+    assert!(excluded.items.iter().all(|r| !r.included));
+    assert!(
+        page.items
+            .iter()
+            .any(|r| r.status == PlanStatus::Duplicate && !r.included)
+    );
+}
+
+fn walk_files(dir: &Path) -> Vec<(PathBuf, u64)> {
+    let mut out = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let p = entry.unwrap().path();
+        if p.is_dir() {
+            out.extend(walk_files(&p));
+        } else {
+            out.push((p.clone(), fs::metadata(&p).unwrap().len()));
+        }
+    }
+    out.sort();
+    out
 }

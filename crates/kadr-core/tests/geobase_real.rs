@@ -4,7 +4,7 @@
 
 #![allow(clippy::unwrap_used)] // test helpers panic on purpose
 
-use kadr_core::domain::location::GeoPoint;
+use kadr_core::domain::location::{GeoPoint, Language};
 use kadr_core::services::geocoder::OfflineGeocoder;
 use kadr_core::services::place::ReverseGeocoder;
 
@@ -29,16 +29,20 @@ fn known_places() {
         ("Атлантика", 0.0, -30.0),
     ];
     for (label, lat, lon) in cases {
-        let p = g.lookup(GeoPoint::new(*lat, *lon, None).unwrap());
-        println!("{label:24} -> {p:?}");
+        let p = g.lookup(GeoPoint::new(*lat, *lon, None).unwrap(), Language::Uk);
+        let e = g.lookup(GeoPoint::new(*lat, *lon, None).unwrap(), Language::En);
+        println!("{label:24} -> {p:?}\n{:24}    {e:?}", "");
     }
     let city = |lat, lon| {
-        g.lookup(GeoPoint::new(lat, lon, None).unwrap())
+        g.lookup(GeoPoint::new(lat, lon, None).unwrap(), Language::Uk)
             .and_then(|p| p.city)
     };
     assert_eq!(city(48.4594, 24.5513).as_deref(), Some("Яремче"));
     assert_eq!(city(50.4501, 30.5234).as_deref(), Some("Київ"));
     assert_eq!(city(49.8419, 24.0315).as_deref(), Some("Львів"));
     assert_eq!(city(48.8584, 2.2945).as_deref(), Some("Париж"));
-    assert!(g.lookup(GeoPoint::new(0.0, -30.0, None).unwrap()).is_none());
+    assert!(
+        g.lookup(GeoPoint::new(0.0, -30.0, None).unwrap(), Language::Uk)
+            .is_none()
+    );
 }
