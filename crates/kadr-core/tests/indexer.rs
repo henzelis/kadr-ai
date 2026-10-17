@@ -411,3 +411,75 @@ fn offline_geobase_names_places_with_city_then_region() {
         Some("Івано-Франківська область")
     );
 }
+
+#[test]
+fn manual_date_replaces_metadata_and_survives_rescan() {
+    let Some(helpers) = real_helpers() else {
+        return;
+    };
+    let mut e = env();
+    scan(&mut e, &helpers);
+    let rows = all(&e.db, LibrarySection::All);
+    let no_date = by_name(&rows, "no_metadata.png").id;
+    let zero = by_name(&rows, "gps_zero.jpg").id;
+
+    // Invalid input is refused and changes nothing.
+    assert!(
+        e.db.set_manual_date(&[no_date], Some("31.12.2020"))
+            .is_err()
+    );
+    assert!(e.db.set_manual_place(&[no_date], Some("a/b")).is_err());
+
+    e.db.set_manual_date(&[no_date, zero], Some("2020-12-31T23:30"))
+        .unwrap();
+    kadr_core::services::indexer::renormalize_items(
+        &mut e.db,
+        Some(&[no_date, zero]),
+        &e.settings,
+        None,
+    )
+    .unwrap();
+    let rows = all(&e.db, LibrarySection::All);
+    let d = by_name(&rows, "no_metadata.png").captured.clone().unwrap();
+    assert_eq!(
+        (d.source, d.status),
+        (DateSource::Manual, DateStatus::Manual)
+    );
+    assert_eq!(
+        d.local.format("%Y-%m-%d %H:%M").to_string(),
+        "2020-12-31 23:30"
+    );
+    // A manual date does not hide GPS problems.
+    assert!(!by_name(&rows, "gps_zero.jpg").review_reasons.is_empty());
+    assert!(
+        !all(&e.db, LibrarySection::NoDate)
+            .iter()
+            .any(|r| r.file_name == "no_metadata.png")
+    );
+
+    // A rescan that re-reads the file keeps the user's date.
+    let p = e.lib.join("Фото/no_metadata.png");
+    let mut bytes = fs::read(&p).unwrap();
+    bytes.push(0);
+    fs::write(&p, bytes).unwrap();
+    scan(&mut e, &helpers);
+    let rows = all(&e.db, LibrarySection::All);
+    assert_eq!(
+        by_name(&rows, "no_metadata.png")
+            .captured
+            .as_ref()
+            .unwrap()
+            .source,
+        DateSource::Manual
+    );
+
+    // Clearing it restores what the metadata says (nothing).
+    e.db.set_manual_date(&[no_date], None).unwrap();
+    kadr_core::services::indexer::renormalize_items(&mut e.db, Some(&[no_date]), &e.settings, None)
+        .unwrap();
+    assert!(
+        by_name(&all(&e.db, LibrarySection::All), "no_metadata.png")
+            .captured
+            .is_none()
+    );
+}

@@ -103,6 +103,13 @@
     else root.dataset.theme = s.theme;
   }
 
+  /** Puts edited rows in place and refreshes the counters. */
+  function applyEdited(rows: MediaView[]) {
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    items = items.map((m) => byId.get(m.id) ?? m);
+    void refreshCounts();
+  }
+
   function pick(id: number, additive: boolean) {
     const next = new Set(additive ? selected : []);
     if (additive && next.has(id)) next.delete(id);
@@ -307,8 +314,8 @@
     </main>
 
     {#if section !== "plan" && section !== "history"}
-      <Inspector item={focused} {demo} count={selected.size} destination={focused ? destinationOf(focused) || null : null}
-        onEdit={() => notify(t.editLater)} />
+      <Inspector item={focused} {demo} selectedIds={[...selected]} destination={focused ? destinationOf(focused) || null : null}
+        onChanged={applyEdited} onMessage={notify} />
     {/if}
   </div>
   <footer class="footer">

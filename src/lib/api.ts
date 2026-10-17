@@ -209,6 +209,17 @@ export async function queryMedia(query: MediaQuery): Promise<MediaPage> {
   return invoke<MediaPage>("query_media", { query });
 }
 
+export async function setManualPlace(ids: number[], place: string | null): Promise<MediaView[]> {
+  if (!inTauri) return [];
+  return invoke<MediaView[]>("set_manual_place", { ids, place });
+}
+
+/** `date` is `YYYY-MM-DDTHH:MM` local time, or null to go back to the metadata. */
+export async function setManualDate(ids: number[], date: string | null): Promise<MediaView[]> {
+  if (!inTauri) return [];
+  return invoke<MediaView[]>("set_manual_date", { ids, date });
+}
+
 export async function getSectionCounts(): Promise<SectionCounts> {
   if (!inTauri) {
     const count = (s: MediaQuery["section"]) => demoQuery({ section: s, kind: "all", search: "", sort: "date", offset: 0, limit: 0 }).total;

@@ -13,7 +13,7 @@ use super::Db;
 use crate::domain::captured_date::CapturedDate;
 use crate::domain::location::{GeoPoint, LocationSource, PlaceStatus};
 use crate::domain::media_item::{MediaKind, MetadataStatus};
-use crate::errors::CoreResult;
+use crate::errors::{CoreError, CoreResult};
 
 pub const LOCAL_TIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 
@@ -61,6 +61,7 @@ pub struct Existing {
     pub provider_key: Option<String>,
     pub sha256: Option<String>,
     pub manual_place: Option<String>,
+    pub manual_date: Option<String>,
 }
 
 /// One scanned file, ready to be written.
@@ -439,7 +440,8 @@ impl Db {
 
     pub fn existing_for_root(&self, root_id: i64) -> CoreResult<HashMap<String, Existing>> {
         let mut stmt = self.conn.prepare(
-            "SELECT normalized_path, id, size_bytes, mtime, metadata_provider, sha256, manual_place_override
+            "SELECT normalized_path, id, size_bytes, mtime, metadata_provider, sha256, manual_place_override,
+                    manual_date_override
              FROM media_item WHERE source_root_id = ?1",
         )?;
         let rows = stmt.query_map(params![root_id], |r| {
@@ -452,6 +454,7 @@ impl Db {
                     provider_key: r.get(4)?,
                     sha256: r.get(5)?,
                     manual_place: r.get(6)?,
+                    manual_date: r.get(7)?,
                 },
             ))
         })?;
@@ -609,6 +612,10 @@ impl Db {
     /// never overwritten by a rescan. Call `renormalize` afterwards.
     pub fn set_manual_place(&mut self, ids: &[i64], place: Option<&str>) -> CoreResult<()> {
         let place = place.map(str::trim).filter(|p| !p.is_empty());
+        if let Some(p) = place {
+            // The place becomes a folder name.
+            crate::settings::validate_folder_name("place", p)?;
+        }
         let tx = self.conn.transaction()?;
         {
             let mut stmt =
@@ -622,12 +629,8 @@ impl Db {
     }
 
     /// Rows whose date and place can be recomputed from stored metadata.
-    pub fn items_for_renormalize(&self) -> CoreResult<Vec<StoredFacts>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, media_kind, mtime, metadata_json, detected_type, manual_place_override
-             FROM media_item WHERE is_sidecar = 0",
-        )?;
-        let rows = stmt.query_map([], |r| {
+    pub fn items_for_renormalize(&self, only: Option<&[i64]>) -> CoreResult<Vec<StoredFacts>> {
+        let read = |r: &Row<'_>| {
             Ok(StoredFacts {
                 id: r.get(0)?,
                 kind: enum_parse(&r.get::<_, String>(1)?).unwrap_or(MediaKind::Unsupported),
@@ -635,9 +638,65 @@ impl Db {
                 metadata_json: r.get(3)?,
                 detected_type: r.get(4)?,
                 manual_place: r.get(5)?,
+                manual_date: r.get(6)?,
             })
-        })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        };
+        const COLUMNS: &str =
+            "SELECT id, media_kind, mtime, metadata_json, detected_type, manual_place_override,
+                                      manual_date_override FROM media_item";
+        match only {
+            None => {
+                let mut stmt = self
+                    .conn
+                    .prepare(&format!("{COLUMNS} WHERE is_sidecar = 0"))?;
+                let rows = stmt.query_map([], read)?;
+                Ok(rows.collect::<Result<_, _>>()?)
+            }
+            Some(ids) => {
+                let mut stmt = self.conn.prepare(&format!("{COLUMNS} WHERE id = ?1"))?;
+                let mut out = Vec::with_capacity(ids.len());
+                for id in ids {
+                    if let Some(row) = stmt.query_row(params![id], read).optional()? {
+                        out.push(row);
+                    }
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// Sets (or clears, with `None`) the user's capture date for items,
+    /// `YYYY-MM-DDTHH:MM:SS` local time. Call `renormalize_items` afterwards.
+    pub fn set_manual_date(&mut self, ids: &[i64], date: Option<&str>) -> CoreResult<()> {
+        let date = match date.map(str::trim).filter(|d| !d.is_empty()) {
+            Some(d) => {
+                let parsed = NaiveDateTime::parse_from_str(d, LOCAL_TIME_FORMAT)
+                    .or_else(|_| NaiveDateTime::parse_from_str(d, "%Y-%m-%dT%H:%M"))
+                    .map_err(|_| CoreError::InvalidValue {
+                        field: "date",
+                        reason: "expected YYYY-MM-DDTHH:MM".to_owned(),
+                    })?;
+                let year = chrono::Datelike::year(&parsed);
+                if !(1826..=2200).contains(&year) {
+                    return Err(CoreError::InvalidValue {
+                        field: "date",
+                        reason: "year out of range".to_owned(),
+                    });
+                }
+                Some(parsed.format(LOCAL_TIME_FORMAT).to_string())
+            }
+            None => None,
+        };
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt =
+                tx.prepare("UPDATE media_item SET manual_date_override = ?2 WHERE id = ?1")?;
+            for id in ids {
+                stmt.execute(params![id, date])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn update_derived(&mut self, updates: &[DerivedUpdate]) -> CoreResult<()> {
@@ -695,6 +754,7 @@ pub struct StoredFacts {
     pub metadata_json: Option<String>,
     pub detected_type: Option<String>,
     pub manual_place: Option<String>,
+    pub manual_date: Option<String>,
 }
 
 /// New date/place values for one row after re-normalization.

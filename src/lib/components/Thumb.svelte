@@ -13,9 +13,11 @@
 
   let failed = $state(false);
   let loaded = $state(false);
-  // A different item (or a changed file) gets a fresh attempt.
+  // A different item or a changed file gets a fresh attempt; an edited
+  // date or place (same file, same image) must not hide the loaded picture.
+  const key = $derived(`${item.id}:${item.mtime}:${size}`);
   $effect(() => {
-    void [item.id, item.mtime, size];
+    void key;
     failed = false;
     loaded = false;
   });

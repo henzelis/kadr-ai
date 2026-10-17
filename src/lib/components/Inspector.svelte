@@ -1,16 +1,45 @@
 <script lang="ts">
+  import { errorMessage, setManualDate, setManualPlace } from "$lib/api";
   import { formatCaptured, formatCoords, formatDuration, formatSize } from "$lib/format";
   import { t } from "$lib/i18n/uk";
+  import EditField from "./EditField.svelte";
   import Thumb from "./Thumb.svelte";
   import type { MediaView } from "$lib/types";
 
-  let { item, count, demo, destination, onEdit }: {
+  let { item, selectedIds, demo, destination, onChanged, onMessage }: {
     item: MediaView | null;
+    selectedIds: number[];
     demo: boolean;
-    count: number;
     destination: string | null;
-    onEdit: () => void;
+    onChanged: (rows: MediaView[]) => void;
+    onMessage: (text: string) => void;
   } = $props();
+
+  const count = $derived(selectedIds.length);
+  let editing = $state<"date" | "place" | null>(null);
+  let busy = $state(false);
+  // Leave edit mode when the selection changes.
+  $effect(() => {
+    void selectedIds;
+    editing = null;
+  });
+
+  async function apply(kind: "date" | "place", value: string | null) {
+    if (demo) return onMessage(t.demoHint);
+    busy = true;
+    try {
+      const rows = kind === "date" ? await setManualDate(selectedIds, value) : await setManualPlace(selectedIds, value);
+      onChanged(rows);
+      editing = null;
+      onMessage(t.editSaved);
+    } catch (e) {
+      onMessage(errorMessage(e));
+    } finally {
+      busy = false;
+    }
+  }
+
+  const dateInput = (local: string | undefined) => (local ? local.slice(0, 16) : "");
 
   const kindLabel = { photo: "Зображення", raw_photo: "RAW", video: "Відео", sidecar: "Sidecar", unsupported: "Непідтримуваний формат" };
 </script>
@@ -23,6 +52,20 @@
 
   {#if count > 1}
     <p class="hint">{t.bulkHint}</p>
+    <div class="detail-section">
+      <div class="detail-section-title"><span>{t.editDateTitle} · {t.forFiles(count)}</span>
+        {#if editing !== "date"}<button class="edit-text" onclick={() => (editing = "date")}>{t.edit}</button>{/if}</div>
+      {#if editing === "date"}
+        <EditField kind="date" initial="" canReset={true} {busy} onSave={(v) => apply("date", v)} onReset={() => apply("date", null)} onCancel={() => (editing = null)} />
+      {/if}
+    </div>
+    <div class="detail-section">
+      <div class="detail-section-title"><span>{t.editPlaceTitle} · {t.forFiles(count)}</span>
+        {#if editing !== "place"}<button class="edit-text" onclick={() => (editing = "place")}>{t.edit}</button>{/if}</div>
+      {#if editing === "place"}
+        <EditField kind="place" initial="" canReset={true} {busy} onSave={(v) => apply("place", v)} onReset={() => apply("place", null)} onCancel={() => (editing = null)} />
+      {/if}
+    </div>
   {:else if !item}
     <p class="hint">{t.nothingSelected}</p>
   {:else}
@@ -50,7 +93,11 @@
 
     <div class="detail-section">
       <div class="detail-section-title"><span>{t.dateAndTime}</span>
-        <button class="edit-text" title={t.editLater} onclick={onEdit}>{t.edit}</button></div>
+        {#if editing !== "date"}<button class="edit-text" onclick={() => (editing = "date")}>{t.edit}</button>{/if}</div>
+      {#if editing === "date"}
+        <EditField kind="date" initial={dateInput(item.captured?.local)} canReset={item.captured?.source === "manual"} {busy}
+          onSave={(v) => apply("date", v)} onReset={() => apply("date", null)} onCancel={() => (editing = null)} />
+      {/if}
       <div class="detail-row"><div class="detail-label">{t.capturedAt}</div>
         <div class="detail-value">{item.captured ? formatCaptured(item.captured.local, item.captured.offset_minutes) : t.unknown}</div></div>
       {#if item.captured}
@@ -69,7 +116,11 @@
 
     <div class="detail-section">
       <div class="detail-section-title"><span>{t.placeTitle}</span>
-        <button class="edit-text" title={t.editLater} onclick={onEdit}>{t.edit}</button></div>
+        {#if editing !== "place"}<button class="edit-text" onclick={() => (editing = "place")}>{t.edit}</button>{/if}</div>
+      {#if editing === "place"}
+        <EditField kind="place" initial={item.place_label ?? ""} canReset={item.location_source === "manual"} {busy}
+          onSave={(v) => apply("place", v)} onReset={() => apply("place", null)} onCancel={() => (editing = null)} />
+      {/if}
       <div class="detail-row"><div class="detail-label">{t.detectedPlace}</div>
         <div class="detail-value">{item.place_label ?? (item.place_status === "gps_no_place" ? t.state.gpsNoPlace : t.state.noGps)}</div></div>
       <div class="detail-row"><div class="detail-label">{t.placeSource}</div><div class="detail-value">{t.locationSources[item.location_source]}</div></div>

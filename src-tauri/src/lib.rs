@@ -77,6 +77,8 @@ pub fn run() {
             commands::library::query_media,
             commands::library::get_media_details,
             commands::library::get_section_counts,
+            commands::library::set_manual_place,
+            commands::library::set_manual_date,
             commands::sources::get_folders,
             commands::sources::add_source_roots,
             commands::sources::remove_source_root,

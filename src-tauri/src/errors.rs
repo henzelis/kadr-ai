@@ -43,6 +43,17 @@ impl From<CoreError> for AppError {
                     field: Some(field),
                 }
             }
+            CoreError::InvalidValue { field, reason } => {
+                eprintln!("kadr: invalid value {field}: {reason}");
+                Self {
+                    code: "invalid_value",
+                    message: match field {
+                        "date" => "Неправильна дата. Вкажіть дату й час зйомки.".to_owned(),
+                        _ => "Неправильне значення.".to_owned(),
+                    },
+                    field: Some(field),
+                }
+            }
             CoreError::SchemaTooNew { .. } => {
                 eprintln!("kadr: {err}");
                 Self {
@@ -68,6 +79,11 @@ fn invalid_setting_message(field: &str) -> String {
                 "Кількість потоків має бути від 1 до {}.",
                 kadr_core::settings::MAX_WORKERS
             )
+        }
+        "place" => {
+            "Назва місця стане назвою папки, тому не може містити символи / \\ : * ? \" < > | \
+             чи бути зарезервованою назвою Windows."
+                .to_owned()
         }
         "folder_template" => "Шаблон папок має закінчуватися на {filename}.".to_owned(),
         "network_enabled" => "Мережеві функції в цій версії недоступні.".to_owned(),

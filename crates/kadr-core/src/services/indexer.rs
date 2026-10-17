@@ -247,6 +247,28 @@ pub struct FileFacts<'a> {
     pub mtime_ms: i64,
     pub sniffed_format: Option<&'a str>,
     pub manual_place: Option<&'a str>,
+    /// User's date, `YYYY-MM-DDTHH:MM:SS` local time.
+    pub manual_date: Option<&'a str>,
+}
+
+/// The user's date replaces whatever the metadata said; the file itself is
+/// never changed.
+fn apply_manual_date(n: &mut Normalized, manual: Option<&str>) {
+    let Some(local) = manual.and_then(|m| {
+        chrono::NaiveDateTime::parse_from_str(m, crate::persistence::media::LOCAL_TIME_FORMAT).ok()
+    }) else {
+        return;
+    };
+    n.captured = Some(crate::domain::captured_date::CapturedDate {
+        raw: local.format("%Y:%m:%d %H:%M:%S").to_string(),
+        local,
+        offset_minutes: None,
+        source: crate::domain::captured_date::DateSource::Manual,
+        status: crate::domain::captured_date::DateStatus::Manual,
+        note: Some("Встановлено вручну в Kadr; метадані файла не змінено".to_owned()),
+    });
+    let date_reasons = std::mem::take(&mut n.date_review_reasons);
+    n.review_reasons.retain(|r| !date_reasons.contains(r));
 }
 
 pub fn derive(
@@ -256,7 +278,8 @@ pub fn derive(
     ctx: &NormalizeContext<'_>,
     geocoder: Option<&dyn ReverseGeocoder>,
 ) -> Derivation {
-    let normalized = normalize(raw, facts.kind, facts.mtime_ms, facts.sniffed_format, ctx);
+    let mut normalized = normalize(raw, facts.kind, facts.mtime_ms, facts.sniffed_format, ctx);
+    apply_manual_date(&mut normalized, facts.manual_date);
     let place = place::resolve(
         &PlaceInputs {
             manual: facts.manual_place,
@@ -274,12 +297,19 @@ pub fn derive(
     Derivation { normalized, place }
 }
 
+/// The user's own values for a file, kept across rescans.
+#[derive(Debug, Clone, Default)]
+struct Overrides {
+    place: Option<String>,
+    date: Option<String>,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn to_indexed(
     out: WorkerOut,
     root_id: i64,
     provider_key: &str,
-    manual_place: Option<&str>,
+    overrides: &Overrides,
     settings: &AppSettings,
     ctx: &NormalizeContext<'_>,
     geocoder: Option<&dyn ReverseGeocoder>,
@@ -337,7 +367,8 @@ fn to_indexed(
         kind: out.kind,
         mtime_ms: f.mtime_ms,
         sniffed_format: out.sniffed_format,
-        manual_place,
+        manual_place: overrides.place.as_deref(),
+        manual_date: overrides.date.as_deref(),
     };
     let d = derive(&raw, &facts, settings, ctx, geocoder);
     let n = d.normalized;
@@ -511,13 +542,14 @@ pub fn run_scan(
                 .first()
                 .map(|(f, _)| f.path.to_string_lossy().into_owned());
             on_progress(&p);
-            let manual: std::collections::HashMap<String, Option<String>> = chunk
+            let manual: std::collections::HashMap<String, Overrides> = chunk
                 .iter()
                 .map(|(f, e)| {
-                    (
-                        normalized_path(&f.path),
-                        e.as_ref().and_then(|e| e.manual_place.clone()),
-                    )
+                    let o = e.as_ref().map_or_else(Overrides::default, |e| Overrides {
+                        place: e.manual_place.clone(),
+                        date: e.manual_date.clone(),
+                    });
+                    (normalized_path(&f.path), o)
                 })
                 .collect();
             let slices: Vec<Vec<FoundFile>> = chunk
@@ -544,12 +576,12 @@ pub fn run_scan(
             let mut batch = Vec::with_capacity(outputs.len());
             for out in outputs {
                 let key = normalized_path(&out.found.path);
-                let manual_place = manual.get(&key).cloned().flatten();
+                let overrides = manual.get(&key).cloned().unwrap_or_default();
                 let (file, issue) = to_indexed(
                     out,
                     root.id,
                     &provider_key,
-                    manual_place.as_deref(),
+                    &overrides,
                     settings,
                     &ctx,
                     geocoder,
@@ -604,8 +636,18 @@ pub fn renormalize(
     settings: &AppSettings,
     geocoder: Option<&dyn ReverseGeocoder>,
 ) -> CoreResult<usize> {
+    renormalize_items(db, None, settings, geocoder)
+}
+
+/// Like [`renormalize`], limited to `only` when given (after a manual edit).
+pub fn renormalize_items(
+    db: &mut Db,
+    only: Option<&[i64]>,
+    settings: &AppSettings,
+    geocoder: Option<&dyn ReverseGeocoder>,
+) -> CoreResult<usize> {
     let ctx = NormalizeContext::system(settings.filesystem_date_fallback);
-    let rows = db.items_for_renormalize()?;
+    let rows = db.items_for_renormalize(only)?;
     let mut updates = Vec::with_capacity(rows.len());
     for row in rows {
         let raw: RawMetadata = row
@@ -618,6 +660,7 @@ pub fn renormalize(
             mtime_ms: row.mtime,
             sniffed_format: row.detected_type.as_deref(),
             manual_place: row.manual_place.as_deref(),
+            manual_date: row.manual_date.as_deref(),
         };
         let d = derive(&raw, &facts, settings, &ctx, geocoder);
         let n = d.normalized;

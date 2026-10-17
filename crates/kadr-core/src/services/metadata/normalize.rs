@@ -71,6 +71,8 @@ pub struct Normalized {
     pub detected_type: Option<String>,
     /// Short Ukrainian sentences for the "До перевірки" list.
     pub review_reasons: Vec<String>,
+    /// The subset of `review_reasons` about the date; a manual date clears them.
+    pub date_review_reasons: Vec<String>,
 }
 
 // ---------------------------------------------------------------- dates
@@ -540,8 +542,9 @@ pub fn normalize(
     sniffed_format: Option<&str>,
     ctx: &NormalizeContext<'_>,
 ) -> Normalized {
-    let mut reasons = Vec::new();
-    let captured = pick_date(raw, kind, mtime_ms, ctx, &mut reasons);
+    let mut date_reasons = Vec::new();
+    let captured = pick_date(raw, kind, mtime_ms, ctx, &mut date_reasons);
+    let mut reasons = date_reasons.clone();
     let gps = pick_gps(raw, &mut reasons);
     let place_text = PlaceText {
         city: first_text(raw, &["City"]),
@@ -590,6 +593,7 @@ pub fn normalize(
             .map(str::to_owned)
             .or_else(|| sniffed_format.map(str::to_owned)),
         review_reasons: reasons,
+        date_review_reasons: date_reasons,
     }
 }
 

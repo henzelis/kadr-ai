@@ -16,6 +16,9 @@ pub enum CoreError {
     #[error("invalid setting `{field}`: {reason}")]
     InvalidSetting { field: &'static str, reason: String },
 
+    #[error("invalid value `{field}`: {reason}")]
+    InvalidValue { field: &'static str, reason: String },
+
     #[error("invalid geobase: {0}")]
     InvalidGeobase(String),
 

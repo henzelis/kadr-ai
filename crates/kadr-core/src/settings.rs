@@ -117,6 +117,12 @@ impl AppSettings {
     }
 }
 
+/// Checks that `value` can be used as one folder name on Windows, macOS and
+/// Linux (used for folder labels and manual place names).
+pub fn validate_folder_name(field: &'static str, value: &str) -> CoreResult<()> {
+    validate_label(field, value)
+}
+
 fn validate_label(field: &'static str, value: &str) -> CoreResult<()> {
     let trimmed = value.trim();
     let reason = if trimmed.is_empty() {
