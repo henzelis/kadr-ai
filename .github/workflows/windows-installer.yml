@@ -1,0 +1,47 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GEOBASE_TAG: geobase-2026-10-17
+  GEOBASE_SHA256: c00a42ff504268be68f72524acde7bebfc58042f472aff589cb2e6af05caa89a
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Offline geobase from the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GEOBASE_TAG" --pattern geobase.sqlite3 --dir src-tauri/resources
+          echo "$GEOBASE_SHA256  src-tauri/resources/geobase.sqlite3" | sha256sum -c -
+
+      - name: Build installer
+        run: pnpm tauri build --bundles nsis --config src-tauri/tauri.bundle.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kadr-windows-installer
+          path: target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 30
