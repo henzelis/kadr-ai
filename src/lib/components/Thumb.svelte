@@ -1,6 +1,6 @@
 <script lang="ts">
   import { thumbUrl } from "$lib/api";
-  import { t } from "$lib/i18n/uk";
+  import { t } from "$lib/i18n";
   import { sceneSvg } from "$lib/scenes";
   import type { MediaView } from "$lib/types";
 

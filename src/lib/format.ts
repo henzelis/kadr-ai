@@ -1,23 +1,23 @@
-import { t } from "./i18n/uk";
+import { lang, t } from "./i18n";
 import type { AppSettings, CapturedDate, MediaView, MonthFormat } from "./types";
 
+const MONTHS_EN = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
 const MONTHS_UK = [
   "Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
   "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень",
 ];
-const MONTHS_GENITIVE_UK = [
-  "січня", "лютого", "березня", "квітня", "травня", "червня",
-  "липня", "серпня", "вересня", "жовтня", "листопада", "грудня",
-];
 
-const number = new Intl.NumberFormat("uk-UA");
+const number = new Intl.NumberFormat(t.locale);
 
 export function formatCount(n: number): string {
   return number.format(n);
 }
 
 export function formatSize(bytes: number): string {
-  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  const units = t.sizeUnits;
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
@@ -25,7 +25,7 @@ export function formatSize(bytes: number): string {
     unit += 1;
   }
   const digits = unit === 0 || value >= 100 ? 0 : 1;
-  return `${value.toLocaleString("uk-UA", { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${units[unit]}`;
+  return `${value.toLocaleString(t.locale, { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${units[unit]}`;
 }
 
 /** Parses a NaiveDateTime string without applying any time zone. */
@@ -38,7 +38,12 @@ function parts(local: string): { y: number; m: number; d: number; hh: string; mm
 export function formatCaptured(local: string, offsetMinutes: number | null): string {
   const p = parts(local);
   if (!p) return local;
-  const base = `${p.d} ${MONTHS_GENITIVE_UK[p.m - 1]} ${p.y}, ${p.hh}:${p.mm}`;
+  // The capture time is wall-clock time where it was taken: format it as is,
+  // without any time-zone conversion.
+  const asUtc = new Date(Date.UTC(p.y, p.m - 1, p.d, Number(p.hh), Number(p.mm)));
+  const base = new Intl.DateTimeFormat(t.locale, {
+    day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC",
+  }).format(asUtc);
   if (offsetMinutes === null) return base;
   const sign = offsetMinutes < 0 ? "−" : "+";
   const abs = Math.abs(offsetMinutes);
@@ -47,7 +52,9 @@ export function formatCaptured(local: string, offsetMinutes: number | null): str
 
 export function formatShortDate(local: string): string {
   const p = parts(local);
-  return p ? `${String(p.d).padStart(2, "0")}.${String(p.m).padStart(2, "0")}.${p.y}` : local;
+  if (!p) return local;
+  return new Intl.DateTimeFormat(t.locale, { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(p.y, p.m - 1, p.d)));
 }
 
 export function formatDuration(ms: number): string {
@@ -61,9 +68,10 @@ export function formatCoords(lat: number, lon: number): string {
   return `${Math.abs(lat).toFixed(4)}° ${ns}, ${Math.abs(lon).toFixed(4)}° ${ew}`;
 }
 
-export function monthFolder(format: MonthFormat, month: number): string {
+/** Month folder name as the planner writes it (preview only). */
+export function monthFolder(format: MonthFormat, month: number, folderLang: "uk" | "en" = lang): string {
   const mm = String(month).padStart(2, "0");
-  const name = MONTHS_UK[month - 1] ?? "";
+  const name = (folderLang === "en" ? MONTHS_EN : MONTHS_UK)[month - 1] ?? "";
   if (format === "number") return mm;
   if (format === "name") return name;
   return `${mm} - ${name}`;

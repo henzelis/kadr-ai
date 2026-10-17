@@ -4,7 +4,7 @@
 
 <script lang="ts">
   import { formatCount } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { t } from "$lib/i18n";
   import type { Folders, LastScan, ScanProgress, SectionCounts } from "$lib/types";
 
   let { section, counts, folders, scan, lastScan, scanning, cancelling, onSelect, onAddSources, onRemoveSource, onChangeDestination, onCancelScan, onReport }: {
@@ -38,7 +38,7 @@
   }
 
   const when = (ms: number) =>
-    new Date(ms).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    new Date(ms).toLocaleString(t.locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
   const percent = $derived.by(() => {
     if (!scan) return lastScan?.state === "done" ? 100 : 0;

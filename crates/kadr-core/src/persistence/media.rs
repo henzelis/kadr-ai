@@ -13,6 +13,7 @@ use super::Db;
 use crate::domain::captured_date::CapturedDate;
 use crate::domain::location::{GeoPoint, LocationSource, PlaceStatus};
 use crate::domain::media_item::{MediaKind, MetadataStatus};
+use crate::domain::note::Note;
 use crate::errors::{CoreError, CoreResult};
 
 pub const LOCAL_TIME_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
@@ -94,9 +95,9 @@ pub struct IndexedFile {
     pub duration_ms: Option<u64>,
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
-    pub review_reasons: Vec<String>,
-    pub warnings: Vec<String>,
-    pub last_error: Option<String>,
+    pub review_reasons: Vec<Note>,
+    pub warnings: Vec<Note>,
+    pub last_error: Option<Note>,
 }
 
 pub fn search_text(
@@ -239,9 +240,9 @@ pub struct MediaRow {
     pub metadata_status: MetadataStatus,
     /// Helpers that actually read this file, e.g. `["exiftool 12.76"]`.
     pub metadata_readers: Vec<String>,
-    pub review_reasons: Vec<String>,
-    pub warnings: Vec<String>,
-    pub last_error: Option<String>,
+    pub review_reasons: Vec<Note>,
+    pub warnings: Vec<Note>,
+    pub last_error: Option<Note>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -285,6 +286,21 @@ const ROW_COLUMNS: &str = "m.id, m.path, m.file_name, m.extension, m.media_kind,
     m.latitude, m.longitude, m.altitude, m.place_label, m.location_source, m.place_status, \
     m.metadata_status, json_extract(m.metadata_json, '$.providers'), m.review_reasons, m.warnings, m.last_error, m.mtime";
 
+/// A stored JSON array of notes; plain strings from older versions become
+/// `text` notes.
+fn json_notes(s: Option<String>) -> Vec<Note> {
+    let values: Vec<serde_json::Value> = s
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    values
+        .into_iter()
+        .map(|v| match v {
+            serde_json::Value::String(t) => Note::new("text").arg("text", t),
+            other => serde_json::from_value(other).unwrap_or_else(|_| Note::new("text")),
+        })
+        .collect()
+}
+
 fn json_list(s: Option<String>) -> Vec<String> {
     s.and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
@@ -302,7 +318,7 @@ fn read_row(r: &Row<'_>) -> rusqlite::Result<MediaRow> {
                     offset_minutes: r.get(15).ok()?,
                     source: enum_parse(&text(16).ok()??)?,
                     status: enum_parse(&text(17).ok()??)?,
-                    note: text(18).ok()?,
+                    note: text(18).ok()?.map(|n| Note::parse(&n)),
                 })
             }),
         _ => None,
@@ -334,9 +350,9 @@ fn read_row(r: &Row<'_>) -> rusqlite::Result<MediaRow> {
         place_status: enum_parse(&r.get::<_, String>(24)?).unwrap_or(PlaceStatus::NoGps),
         metadata_status: enum_parse(&r.get::<_, String>(25)?).unwrap_or(MetadataStatus::NotRead),
         metadata_readers: json_list(r.get(26)?),
-        review_reasons: json_list(r.get(27)?),
-        warnings: json_list(r.get(28)?),
-        last_error: r.get(29)?,
+        review_reasons: json_notes(r.get(27)?),
+        warnings: json_notes(r.get(28)?),
+        last_error: r.get::<_, Option<String>>(29)?.map(|n| Note::parse(&n)),
         mtime: r.get(30)?,
         companions: Vec::new(),
         duplicates: Vec::new(),
@@ -1002,7 +1018,7 @@ pub struct DerivedUpdate {
     pub place_label: Option<String>,
     pub location_source: LocationSource,
     pub place_status: PlaceStatus,
-    pub review_reasons: Vec<String>,
+    pub review_reasons: Vec<Note>,
 }
 
 struct Derived {
@@ -1029,7 +1045,7 @@ impl Derived {
             offset: c.and_then(|c| c.offset_minutes),
             source: c.map(|c| enum_str(&c.source)),
             status: c.map(|c| enum_str(&c.status)),
-            note: c.and_then(|c| c.note.clone()),
+            note: c.and_then(|c| c.note.as_ref().map(Note::to_json)),
             lat: gps.map(|g| g.latitude),
             lon: gps.map(|g| g.longitude),
             alt: gps.and_then(|g| g.altitude),
@@ -1107,7 +1123,7 @@ fn upsert(tx: &Transaction<'_>, f: &IndexedFile, scan_ts: i64) -> CoreResult<()>
             f.audio_codec,
             serde_json::to_string(&f.review_reasons)?,
             serde_json::to_string(&f.warnings)?,
-            f.last_error,
+            f.last_error.as_ref().map(Note::to_json),
             f.kind == MediaKind::Sidecar,
             scan_ts,
             search_text(&f.file_name, &f.path, f.place_label.as_deref(), d.local.as_deref()),

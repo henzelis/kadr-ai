@@ -1,6 +1,6 @@
 <script lang="ts">
   import { effectiveDate, formatCount, formatShortDate } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { t } from "$lib/i18n";
   import type { AppSettings, MediaView, OperationMode } from "$lib/types";
 
   let { items, settings, destinationOf, duplicateIds, onBack }: {

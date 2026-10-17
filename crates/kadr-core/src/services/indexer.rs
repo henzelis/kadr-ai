@@ -21,6 +21,7 @@ use super::metadata::{MetadataProvider, RawMetadata, ReadError};
 use super::place::{self, PlaceInputs, ReverseGeocoder};
 use super::scanner::{self, FoundFile, SkipReason, WalkEvent, WalkOptions, WalkOutcome};
 use crate::domain::media_item::{MediaKind, MetadataStatus};
+use crate::domain::note::Note;
 use crate::errors::CoreResult;
 use crate::persistence::Db;
 use crate::persistence::media::{
@@ -29,7 +30,7 @@ use crate::persistence::media::{
 use crate::settings::AppSettings;
 
 /// Bump when normalization changes in a way that needs re-reading files.
-const PIPELINE_VERSION: u32 = 2;
+const PIPELINE_VERSION: u32 = 3;
 /// Files handed to one worker at a time (one ExifTool process per slice).
 const FILES_PER_WORKER: usize = 24;
 const HASH_BUFFER: usize = 1 << 20;
@@ -222,15 +223,11 @@ fn work(
         .collect()
 }
 
-fn friendly_error(err: &ReadError) -> &'static str {
+fn read_error_note(err: &ReadError) -> Note {
     match err {
-        ReadError::HelperMissing => {
-            "Немає інструмента для читання метаданих цього формату. Перевстановіть Kadr, щоб відновити вбудовані інструменти."
-        }
-        ReadError::Unreadable(_) => {
-            "Не вдалося прочитати метадані: файл пошкоджений або формат не підтримується."
-        }
-        ReadError::HelperFailed(_) => "Інструмент метаданих завершився з помилкою або не відповів.",
+        ReadError::HelperMissing => Note::new("no_helper"),
+        ReadError::Unreadable(d) => Note::new("unreadable").arg("detail", d),
+        ReadError::HelperFailed(d) => Note::new("helper_failed").arg("detail", d),
     }
 }
 
@@ -265,7 +262,7 @@ fn apply_manual_date(n: &mut Normalized, manual: Option<&str>) {
         offset_minutes: None,
         source: crate::domain::captured_date::DateSource::Manual,
         status: crate::domain::captured_date::DateStatus::Manual,
-        note: Some("Встановлено вручну в Kadr; метадані файла не змінено".to_owned()),
+        note: Some(Note::new("manual_date")),
     });
     let date_reasons = std::mem::take(&mut n.date_review_reasons);
     n.review_reasons.retain(|r| !date_reasons.contains(r));
@@ -313,22 +310,27 @@ fn to_indexed(
     settings: &AppSettings,
     ctx: &NormalizeContext<'_>,
     geocoder: Option<&dyn ReverseGeocoder>,
-) -> (IndexedFile, Option<String>) {
+) -> (IndexedFile, Option<Note>) {
     let f = &out.found;
     let mut warnings = Vec::new();
     if let Some(format) = out.sniffed_format
         && !f.extension.is_empty()
         && !extension_matches(&f.extension, format)
     {
-        warnings.push(format!(
-            "Розширення .{} не відповідає вмісту файла ({format})",
-            f.extension
-        ));
+        warnings.push(
+            Note::new("ext_mismatch")
+                .arg("ext", &f.extension)
+                .arg("format", format),
+        );
     }
     let (raw, status, last_error) = match out.meta {
         Ok(raw) => {
             let partial = out.meta_partial || !raw.warnings.is_empty();
-            warnings.extend(raw.warnings.iter().cloned());
+            warnings.extend(
+                raw.warnings
+                    .iter()
+                    .map(|w| Note::new("helper_warning").arg("text", w)),
+            );
             let status = if out.kind == MediaKind::Sidecar {
                 MetadataStatus::NotRead
             } else if partial {
@@ -344,14 +346,7 @@ fn to_indexed(
             } else {
                 MetadataStatus::Failed
             };
-            if let ReadError::Unreadable(d) | ReadError::HelperFailed(d) = &err {
-                warnings.push(d.clone());
-            }
-            (
-                RawMetadata::default(),
-                status,
-                Some(friendly_error(&err).to_owned()),
-            )
+            (RawMetadata::default(), status, Some(read_error_note(&err)))
         }
     };
     let (sha256, hash_issue) = match out.sha256 {
@@ -361,7 +356,7 @@ fn to_indexed(
     let last_error = last_error.or_else(|| {
         hash_issue
             .as_ref()
-            .map(|e| format!("Не вдалося прочитати файл: {e}"))
+            .map(|e| Note::new("file_unreadable").arg("detail", e))
     });
     let facts = FileFacts {
         kind: out.kind,
@@ -595,7 +590,7 @@ pub fn run_scan(
                 );
                 if let Some(message) = issue {
                     p.errors += 1;
-                    issues.push((file.path.clone(), "read_error", message));
+                    issues.push((file.path.clone(), "read_error", message.to_json()));
                 }
                 batch.push(file);
             }

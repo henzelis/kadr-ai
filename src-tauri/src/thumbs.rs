@@ -42,7 +42,7 @@ pub fn handle<R: Runtime>(
                 .ok_or((StatusCode::NOT_FOUND, "not in the index".to_owned()))?;
             let thumbnailer = state
                 .thumbnailer()
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.message))?;
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.code.to_owned()))?;
             let file = thumbnailer.get(&source, size).map_err(|e| match e {
                 ThumbError::Unsupported => (StatusCode::UNSUPPORTED_MEDIA_TYPE, e.to_string()),
                 ThumbError::Failed(m) => (StatusCode::UNPROCESSABLE_ENTITY, m),

@@ -9,6 +9,7 @@ use super::RawMetadata;
 use crate::domain::captured_date::{CapturedDate, DateSource, DateStatus};
 use crate::domain::location::GeoPoint;
 use crate::domain::media_item::MediaKind;
+use crate::domain::note::Note;
 
 /// The first photograph was made in 1826; anything earlier is junk.
 const MIN_YEAR: i32 = 1826;
@@ -70,9 +71,9 @@ pub struct Normalized {
     pub audio_codec: Option<String>,
     pub detected_type: Option<String>,
     /// Short Ukrainian sentences for the "До перевірки" list.
-    pub review_reasons: Vec<String>,
+    pub review_reasons: Vec<Note>,
     /// The subset of `review_reasons` about the date; a manual date clears them.
-    pub date_review_reasons: Vec<String>,
+    pub date_review_reasons: Vec<Note>,
 }
 
 // ---------------------------------------------------------------- dates
@@ -181,7 +182,7 @@ struct Candidate {
     raw: String,
     local: NaiveDateTime,
     offset_minutes: Option<i32>,
-    note: Option<String>,
+    note: Option<Note>,
 }
 
 impl Candidate {
@@ -332,7 +333,7 @@ fn collect_dates(
     raw: &RawMetadata,
     kind: MediaKind,
     ctx: &NormalizeContext<'_>,
-    reasons: &mut Vec<String>,
+    reasons: &mut Vec<Note>,
 ) -> Vec<Candidate> {
     let specs = if kind == MediaKind::Video {
         VIDEO_DATES
@@ -359,7 +360,11 @@ fn collect_dates(
         let (local, mut offset, date_only) = match parse_datetime(value) {
             ParsedDate::Empty => continue,
             ParsedDate::Invalid(v) => {
-                reasons.push(format!("Не вдалося розпізнати дату {} = «{v}»", spec.tag));
+                reasons.push(
+                    Note::new("date_unparsable")
+                        .arg("tag", spec.tag)
+                        .arg("value", &v),
+                );
                 continue;
             }
             ParsedDate::Valid {
@@ -376,19 +381,16 @@ fn collect_dates(
         {
             offset = Some(o);
         }
-        let mut note = date_only.then(|| "У метаданих лише дата, без часу".to_owned());
+        let mut note = date_only.then(|| Note::new("date_only"));
         let (local, offset) = if spec.clock == Clock::Utc {
             // The value is UTC. Show it in this computer's time zone and say so.
             match (ctx.local_offset_at)(local) {
                 Some(o) => {
-                    note = Some(format!(
-                        "Час у файлі записано в UTC; переведено за часовим поясом цього комп'ютера ({})",
-                        format_offset(o)
-                    ));
+                    note = Some(Note::new("utc_converted").arg("offset", format_offset(o)));
                     (local + Duration::minutes(i64::from(o)), Some(o))
                 }
                 None => {
-                    note = Some("Час у файлі записано в UTC".to_owned());
+                    note = Some(Note::new("utc"));
                     (local, Some(0))
                 }
             }
@@ -396,7 +398,11 @@ fn collect_dates(
             (local, offset)
         };
         if local.year() < MIN_YEAR || local > latest {
-            reasons.push(format!("Неправдоподібна дата {} = «{value}»", spec.tag));
+            reasons.push(
+                Note::new("date_implausible")
+                    .arg("tag", spec.tag)
+                    .arg("value", value),
+            );
             continue;
         }
         out.push(Candidate {
@@ -424,7 +430,7 @@ fn pick_date(
     kind: MediaKind,
     mtime_ms: i64,
     ctx: &NormalizeContext<'_>,
-    reasons: &mut Vec<String>,
+    reasons: &mut Vec<Note>,
 ) -> Option<CapturedDate> {
     let candidates = collect_dates(raw, kind, ctx, reasons);
     if let Some(best) = candidates.first() {
@@ -435,10 +441,13 @@ fn pick_date(
             DateStatus::Confirmed
         };
         if let Some(c) = conflict {
-            reasons.push(format!(
-                "Дати суперечать одна одній: {} = «{}», {} = «{}»",
-                best.tag, best.raw, c.tag, c.raw
-            ));
+            reasons.push(
+                Note::new("date_conflict")
+                    .arg("a_tag", &best.tag)
+                    .arg("a", &best.raw)
+                    .arg("b_tag", &c.tag)
+                    .arg("b", &c.raw),
+            );
         }
         return Some(CapturedDate {
             raw: best.raw.clone(),
@@ -459,7 +468,7 @@ fn pick_date(
             offset_minutes: offset,
             source: DateSource::FileSystem,
             status: DateStatus::FileSystemFallback,
-            note: Some("Дата зміни файла, а не час зйомки".to_owned()),
+            note: Some(Note::new("fs_date")),
         });
     }
     None
@@ -487,7 +496,7 @@ pub fn parse_iso6709(s: &str) -> Option<(f64, f64, Option<f64>)> {
     }
 }
 
-fn pick_gps(raw: &RawMetadata, reasons: &mut Vec<String>) -> Option<GeoPoint> {
+fn pick_gps(raw: &RawMetadata, reasons: &mut Vec<Note>) -> Option<GeoPoint> {
     let from_composite = raw
         .f64("Composite:GPSLatitude")
         .zip(raw.f64("Composite:GPSLongitude"))
@@ -502,12 +511,12 @@ fn pick_gps(raw: &RawMetadata, reasons: &mut Vec<String>) -> Option<GeoPoint> {
     };
     let (lat, lon, alt) = from_composite.or_else(from_iso)?;
     if lat == 0.0 && lon == 0.0 {
-        reasons.push("GPS-координати 0°, 0° — найімовірніше, порожнє значення".to_owned());
+        reasons.push(Note::new("gps_zero"));
         return None;
     }
     let point = GeoPoint::new(lat, lon, alt);
     if point.is_none() {
-        reasons.push(format!("Некоректні GPS-координати: {lat}, {lon}"));
+        reasons.push(Note::new("gps_invalid").arg("lat", lat).arg("lon", lon));
     }
     point
 }
@@ -807,7 +816,11 @@ mod tests {
             (d.local, d.offset_minutes),
             (dt("2025-05-03 21:40:10"), Some(180))
         );
-        assert!(d.note.unwrap().contains("UTC"));
+        let note = d.note.unwrap();
+        assert_eq!(
+            (note.code.as_str(), note.args["offset"].as_str()),
+            ("utc_converted", "UTC+03:00")
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { errorMessage, setManualDate, setManualPlace } from "$lib/api";
   import { formatCaptured, formatCoords, formatDuration, formatSize } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { noteText, t } from "$lib/i18n";
   import EditField from "./EditField.svelte";
   import Thumb from "./Thumb.svelte";
   import type { MediaView } from "$lib/types";
@@ -41,7 +41,7 @@
 
   const dateInput = (local: string | undefined) => (local ? local.slice(0, 16) : "");
 
-  const kindLabel = { photo: "Зображення", raw_photo: "RAW", video: "Відео", sidecar: "Sidecar", unsupported: "Непідтримуваний формат" };
+  const kindLabel = $derived(t.kindLabel);
 </script>
 
 <aside class="inspector" aria-label={t.inspector}>
@@ -78,11 +78,11 @@
     {#if item.review_reasons.length || item.last_error || item.warnings.length || item.duplicates.length}
       <div class="problems">
         {#if item.last_error}
-          <div class="problem error"><strong>{t.readError}</strong>{item.last_error}</div>
+          <div class="problem error"><strong>{t.readError}</strong>{noteText(item.last_error)}</div>
         {/if}
         {#if item.review_reasons.length}
           <div class="problem review"><strong>{t.reviewReasons}</strong>
-            <ul>{#each item.review_reasons as reason, i (i)}<li>{reason}</li>{/each}</ul></div>
+            <ul>{#each item.review_reasons as reason, i (i)}<li>{noteText(reason)}</li>{/each}</ul></div>
         {/if}
         {#if item.duplicates.length}
           <div class="problem info"><strong>{t.otherCopies}</strong>
@@ -91,7 +91,7 @@
         {/if}
         {#if item.warnings.length}
           <div class="problem info"><strong>{t.warnings}</strong>
-            <ul>{#each item.warnings as warning, i (i)}<li>{warning}</li>{/each}</ul></div>
+            <ul>{#each item.warnings as warning, i (i)}<li>{noteText(warning)}</li>{/each}</ul></div>
         {/if}
       </div>
     {/if}
@@ -113,9 +113,9 @@
             </span>
           </div></div>
         <div class="detail-row"><div class="detail-label">{t.rawValue}</div><div class="detail-value mono small">{item.captured.raw}</div></div>
-        {#if item.captured.note}<div class="note">{item.captured.note}</div>{/if}
+        {#if item.captured.note}<div class="note">{noteText(item.captured.note)}</div>{/if}
       {:else}
-        <div class="note">{t.state.noDate}: файл потрапить у папку для файлів без дати.</div>
+        <div class="note">{t.state.noDate}</div>
       {/if}
     </div>
 
@@ -141,7 +141,7 @@
     <div class="detail-section">
       <div class="detail-section-title"><span>{t.file}</span></div>
       <div class="detail-row"><div class="detail-label">{t.format}</div><div class="detail-value">{item.extension.toUpperCase() || "—"} · {kindLabel[item.kind]}</div></div>
-      {#if item.detected_type && item.warnings.some((w) => w.startsWith("Розширення"))}
+      {#if item.detected_type && item.warnings.some((w) => w.code === "ext_mismatch")}
         <div class="detail-row"><div class="detail-label">{t.detectedType}</div><div class="detail-value">{item.detected_type}</div></div>
       {/if}
       <div class="detail-row"><div class="detail-label">{t.size}</div><div class="detail-value">{formatSize(item.size_bytes)}</div></div>

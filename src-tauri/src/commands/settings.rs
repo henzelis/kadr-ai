@@ -39,10 +39,7 @@ pub async fn update_settings(
     }
     if previous.affects_derivation(&stored) {
         if state.lock(&state.scan)?.is_some() {
-            return Err(AppError::user(
-                "scan_running",
-                "Налаштування збережено; файли буде оновлено після завершення сканування.",
-            ));
+            return Err(AppError::user("saved_after_scan"));
         }
         crate::commands::geobase::renormalize_in_background(&state, stored.clone()).await?;
     }

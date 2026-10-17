@@ -68,7 +68,7 @@ async fn after_edit(state: &AppState, ids: Vec<i64>) -> Result<Vec<MediaRow>, Ap
 
 fn check_ids(ids: &[i64]) -> Result<(), AppError> {
     if ids.is_empty() || ids.len() > 100_000 {
-        return Err(AppError::user("invalid_selection", "Нічого не вибрано."));
+        return Err(AppError::user("invalid_selection"));
     }
     Ok(())
 }

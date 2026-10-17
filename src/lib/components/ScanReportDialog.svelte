@@ -1,7 +1,7 @@
 <script lang="ts">
   import { errorMessage, getScanReport } from "$lib/api";
   import { formatCount } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { noteText, t } from "$lib/i18n";
   import type { ScanReport } from "$lib/types";
 
   let { onClose }: { onClose: () => void } = $props();
@@ -69,7 +69,7 @@
                 {t.report.kinds[issue.kind] ?? issue.kind}
               </span>
               <span class="path">{issue.path}</span>
-              {#if issue.message}<span class="msg">{issue.message}</span>{/if}
+              {#if issue.message}<span class="msg">{issue.message.startsWith("{") ? noteText(JSON.parse(issue.message)) : issue.message}</span>{/if}
             </li>
           {/each}
         </ul>

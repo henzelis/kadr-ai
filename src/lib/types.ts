@@ -45,8 +45,13 @@ export interface LibrarySummary {
 
 export interface AppError {
   code: string;
-  message: string;
   field: string | null;
+}
+
+/** Message from the core: a code plus parameters, translated by the UI. */
+export interface Note {
+  code: string;
+  args?: Record<string, string>;
 }
 
 export type MediaKind = "photo" | "raw_photo" | "video" | "sidecar" | "unsupported";
@@ -63,7 +68,7 @@ export interface CapturedDate {
   offset_minutes: number | null;
   source: DateSource;
   status: DateStatus;
-  note: string | null;
+  note: Note | null;
 }
 
 export interface GeoPoint {
@@ -106,9 +111,9 @@ export interface MediaView {
   place_status: PlaceStatus;
   metadata_status: MetadataStatus;
   metadata_readers: string[];
-  review_reasons: string[];
-  warnings: string[];
-  last_error: string | null;
+  review_reasons: Note[];
+  warnings: Note[];
+  last_error: Note | null;
 }
 
 export type LibrarySection = "all" | "review" | "no_date" | "no_gps" | "duplicates";

@@ -1,7 +1,11 @@
-// Ukrainian UI strings. Other languages arrive in stage F; components read
-// texts only from here.
+// Ukrainian UI strings. `en.ts` has the same keys; components read texts
+// only through `t` from `./index`.
+
+type Args = Record<string, string>;
 
 export const uk = {
+  sizeUnits: ["Б", "КБ", "МБ", "ГБ", "ТБ"],
+  locale: "uk-UA",
   brandSub: "Локальний медіаархів",
   localMode: "Локальний режим",
   noCloud: "Файли не завантажуються в хмару",
@@ -10,6 +14,7 @@ export const uk = {
   toggleTheme: "Перемкнути тему",
   settings: "Налаштування",
   addFolders: "Додати папки",
+  libraryTitle: "Ваша медіатека",
   library: "Медіатека",
   workflow: "Робочий процес",
   sections: {
@@ -58,6 +63,7 @@ export const uk = {
   totalFiles: (n: number) => `${n.toLocaleString("uk-UA")} файл(ів)`,
   nothingFound: "Нічого не знайдено",
   nothingFoundHint: "Спробуйте змінити пошук або фільтри.",
+  kindLabel: { photo: "Зображення", raw_photo: "RAW", video: "Відео", sidecar: "Супровідний файл", unsupported: "Непідтримуваний формат" },
   kindBadge: { photo: "ФОТО", raw_photo: "RAW", video: "ВІДЕО", sidecar: "SIDECAR", unsupported: "?" },
   state: {
     ok: "Метадані зчитано",
@@ -205,6 +211,9 @@ export const uk = {
     themeSystem: "Як у системі",
     themeLight: "Світла",
     themeDark: "Темна",
+    language: "Мова інтерфейсу",
+    languageAuto: "Як у системі",
+    languageReload: "Мову буде змінено після перезапуску вікна.",
     cancel: "Скасувати",
     save: "Зберегти",
     saved: "Налаштування збережено",
@@ -274,14 +283,58 @@ export const uk = {
     shownFirst: (n: number) => `Показано перші ${n}.`,
     close: "Закрити",
   },
+  notes: {
+    date_unparsable: (a: Args) => `Не вдалося розпізнати дату ${a.tag} = «${a.value}»`,
+    date_implausible: (a: Args) => `Неправдоподібна дата ${a.tag} = «${a.value}»`,
+    date_conflict: (a: Args) => `Дати суперечать одна одній: ${a.a_tag} = «${a.a}», ${a.b_tag} = «${a.b}»`,
+    gps_zero: () => "GPS-координати 0°, 0° — найімовірніше, порожнє значення",
+    gps_invalid: (a: Args) => `Некоректні GPS-координати: ${a.lat}, ${a.lon}`,
+    date_only: () => "У метаданих лише дата, без часу",
+    utc_converted: (a: Args) => `Час у файлі записано в UTC; переведено за часовим поясом цього комп'ютера (${a.offset})`,
+    utc: () => "Час у файлі записано в UTC",
+    fs_date: () => "Дата зміни файла, а не час зйомки",
+    manual_date: () => "Встановлено вручну в Kadr; метадані файла не змінено",
+    ext_mismatch: (a: Args) => `Розширення .${a.ext} не відповідає вмісту файла (${a.format})`,
+    helper_warning: (a: Args) => `Попередження інструмента: ${a.text}`,
+    no_helper: () => "Немає інструмента для читання метаданих цього формату. Перевстановіть Kadr, щоб відновити вбудовані інструменти.",
+    unreadable: () => "Не вдалося прочитати метадані: файл пошкоджений або формат не підтримується.",
+    helper_failed: () => "Інструмент метаданих завершився з помилкою або не відповів.",
+    file_unreadable: (a: Args) => `Не вдалося прочитати файл: ${a.detail}`,
+  } as Record<string, (a: Args) => string>,
+  errors: {
+    internal: "Внутрішня помилка. Спробуйте ще раз або перезапустіть Kadr.",
+    schema_too_new: "Індекс створено новішою версією Kadr. Оновіть застосунок.",
+    scan_running: "Дочекайтеся завершення сканування.",
+    scan_already_running: "Сканування вже триває.",
+    no_sources: "Спочатку додайте папки з фото й відео.",
+    path_not_absolute: "Потрібен повний шлях до папки.",
+    path_not_found: "Папку не знайдено або до неї немає доступу.",
+    not_a_folder: "Це не папка.",
+    app_data_folder: "Ця папка містить службові дані Kadr і не може бути вибрана.",
+    invalid_selection: "Нічого не вибрано.",
+    invalid_geobase: "Це не файл геобази Kadr або він пошкоджений.",
+    saved_after_scan: "Налаштування збережено; файли буде оновлено після завершення сканування.",
+    invalid_value: "Неправильне значення.",
+    invalid_setting: "Недопустиме значення налаштування.",
+    generic: "Не вдалося виконати дію.",
+  } as Record<string, string>,
+  errorFields: {
+    date: "Неправильна дата. Вкажіть дату й час зйомки.",
+    place: "Назва місця стане назвою папки, тому не може містити символи / \\ : * ? \" < > | чи бути зарезервованою назвою Windows.",
+    unknown_date_label: "Назва папки не може бути порожньою, містити символи / \\ : * ? \" < > | чи бути зарезервованою назвою Windows.",
+    unknown_place_label: "Назва папки не може бути порожньою, містити символи / \\ : * ? \" < > | чи бути зарезервованою назвою Windows.",
+    metadata_workers: "Кількість потоків має бути від 1 до 32.",
+    thumbnail_workers: "Кількість потоків має бути від 1 до 32.",
+    folder_template: "Шаблон папок має закінчуватися на {filename}.",
+    network_enabled: "Мережеві функції в цій версії недоступні.",
+  } as Record<string, string>,
+
   footerReady: "Готово до роботи",
   footerIndex: (n: number) => `${n} файлів у локальному індексі`,
   footerBrowser: "Перегляд у браузері (без Rust-ядра)",
   footerSqlite: (v: number) => `SQLite · схема v${v}`,
   version: (v: string) => `Версія ${v}`,
   close: "Закрити",
-  foldersLater: "Вибір папок з'явиться на етапі B",
-  scanLater: "Сканування з'явиться на етапі B",
-} as const;
+};
 
-export const t = uk;
+export type Strings = typeof uk;

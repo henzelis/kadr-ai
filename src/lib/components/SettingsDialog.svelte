@@ -1,7 +1,7 @@
 <script lang="ts">
   import { errorMessage, getGeobaseStatus, getToolStatus, inTauri, isAppError, pickGeobaseFile, updateSettings } from "$lib/api";
-  import { formatCount } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { formatCount, monthFolder } from "$lib/format";
+  import { setLangChoice, storedLangChoice, t } from "$lib/i18n";
   import type { AppSettings, GeobaseInfo, ToolStatus } from "$lib/types";
 
   let { settings, onClose, onSaved, onLibraryChanged }: {
@@ -15,6 +15,8 @@
   // svelte-ignore state_referenced_locally
   let draft: AppSettings = $state(structuredClone($state.snapshot(settings)));
   let tools = $state<ToolStatus[] | null>(null);
+  const initialLang = storedLangChoice();
+  let langChoice = $state(initialLang);
   let geobase = $state<GeobaseInfo | null>(null);
   let importing = $state(false);
   let notice = $state<string | null>(null);
@@ -67,6 +69,10 @@
         ffprobe_path: draft.ffprobe_path?.trim() || null,
       };
       onSaved(await updateSettings(clean));
+      if (langChoice !== initialLang) {
+        setLangChoice(langChoice);
+        location.reload();
+      }
     } catch (e) {
       error = errorMessage(e);
       errorField = isAppError(e) ? e.field : null;
@@ -96,9 +102,9 @@
       <div class="grid">
         <label class="row">{t.settingsDialog.monthFormat}
           <select bind:value={draft.month_format}>
-            <option value="number_name">08 - Серпень</option>
+            <option value="number_name">{monthFolder("number_name", 8)}</option>
             <option value="number">08</option>
-            <option value="name">Серпень</option>
+            <option value="name">{monthFolder("name", 8)}</option>
           </select>
         </label>
         <label class="row">{t.settingsDialog.granularity}
@@ -197,6 +203,14 @@
 
     <fieldset>
       <legend>{t.settingsDialog.appearance}</legend>
+      <label class="row">{t.settingsDialog.language}
+        <select bind:value={langChoice}>
+          <option value="auto">{t.settingsDialog.languageAuto}</option>
+          <option value="uk">Українська</option>
+          <option value="en">English</option>
+        </select>
+        {#if langChoice !== initialLang}<span class="hint">{t.settingsDialog.languageReload}</span>{/if}
+      </label>
       <label class="row">{t.settingsDialog.theme}
         <select bind:value={draft.theme}>
           <option value="system">{t.settingsDialog.themeSystem}</option>

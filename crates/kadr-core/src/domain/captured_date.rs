@@ -43,7 +43,7 @@ pub struct CapturedDate {
     pub source: DateSource,
     pub status: DateStatus,
     /// How the raw value was normalized, for the inspector.
-    pub note: Option<String>,
+    pub note: Option<super::note::Note>,
 }
 
 impl CapturedDate {

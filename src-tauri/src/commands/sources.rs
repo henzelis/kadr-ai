@@ -11,27 +11,16 @@ use crate::errors::AppError;
 fn validated_dir(app: &AppHandle, raw: &str) -> Result<PathBuf, AppError> {
     let path = Path::new(raw.trim());
     if !path.is_absolute() {
-        return Err(AppError::user(
-            "invalid_path",
-            "Потрібен повний шлях до папки.",
-        ));
+        return Err(AppError::user("path_not_absolute"));
     }
-    let canonical = dunce_canonicalize(path).map_err(|_| {
-        AppError::user(
-            "invalid_path",
-            "Папку не знайдено або до неї немає доступу.",
-        )
-    })?;
+    let canonical = dunce_canonicalize(path).map_err(|_| AppError::user("path_not_found"))?;
     if !canonical.is_dir() {
-        return Err(AppError::user("invalid_path", "Це не папка."));
+        return Err(AppError::user("not_a_folder"));
     }
     if let Ok(data) = app.path().app_data_dir()
         && (canonical.starts_with(&data) || data.starts_with(&canonical))
     {
-        return Err(AppError::user(
-            "invalid_path",
-            "Ця папка містить службові дані Kadr і не може бути вибрана.",
-        ));
+        return Err(AppError::user("app_data_folder"));
     }
     Ok(canonical)
 }
@@ -102,10 +91,7 @@ pub fn add_source_roots(
 #[tauri::command]
 pub fn remove_source_root(state: State<'_, AppState>, id: i64) -> Result<Folders, AppError> {
     if state.lock(&state.scan)?.is_some() {
-        return Err(AppError::user(
-            "scan_running",
-            "Дочекайтеся завершення сканування.",
-        ));
+        return Err(AppError::user("scan_running"));
     }
     state.db()?.remove_source_root(id)?;
     folders(&state)

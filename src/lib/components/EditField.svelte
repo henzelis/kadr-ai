@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from "$lib/i18n/uk";
+  import { t } from "$lib/i18n";
 
   let { kind, initial, canReset, busy, onSave, onReset, onCancel }: {
     kind: "date" | "place";

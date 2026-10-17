@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatShortDate, metaState } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { t } from "$lib/i18n";
   import type { PagedLibrary } from "$lib/library.svelte";
   import type { KindFilter, MediaView, SortKey } from "$lib/types";
   import Thumb from "./Thumb.svelte";

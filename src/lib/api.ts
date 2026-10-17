@@ -7,6 +7,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { DEMO_DESTINATION, DEMO_SOURCE, demoMedia } from "./demo";
 import { formatShortDate } from "./format";
+import { t } from "./i18n";
 import type {
   AppError, AppSettings, Folders, GeobaseInfo, LibrarySummary, MediaPage, MediaQuery, MediaView,
   ScanProgress, ScanReport, ScanStatus, SectionCounts, ToolStatus,
@@ -38,11 +39,13 @@ const browserDefaults: AppSettings = {
 let browserSettings: AppSettings = { ...browserDefaults };
 
 export function isAppError(e: unknown): e is AppError {
-  return typeof e === "object" && e !== null && "code" in e && "message" in e;
+  return typeof e === "object" && e !== null && "code" in e;
 }
 
+/** User-facing text for an error from the core, in the UI language. */
 export function errorMessage(e: unknown): string {
-  return isAppError(e) ? e.message : "Не вдалося виконати дію.";
+  if (!isAppError(e)) return t.errors.generic;
+  return (e.field && t.errorFields[e.field]) || t.errors[e.code] || t.errors.generic;
 }
 
 // ---------------------------------------------------------------- settings

@@ -14,7 +14,7 @@
   import Titlebar from "$lib/components/Titlebar.svelte";
   import { demoMedia } from "$lib/demo";
   import { demoDestination, formatCount, monthFolder } from "$lib/format";
-  import { t } from "$lib/i18n/uk";
+  import { t } from "$lib/i18n";
   import { PagedLibrary } from "$lib/library.svelte";
   import type {
     AppSettings, Folders, KindFilter, LastScan, LibrarySection, LibrarySummary, MediaView, ScanProgress, SectionCounts, SortKey,
@@ -205,7 +205,7 @@
           failed: (e) => {
             scanning = false;
             cancelling = false;
-            notify(e.message);
+            notify(errorMessage(e));
           },
         });
       } catch (e) {
@@ -226,10 +226,10 @@
   });
 
   function percent(n: number) {
-    return `${((n / Math.max(counts.all, 1)) * 100).toLocaleString("uk-UA", { maximumFractionDigits: 1 })}%`;
+    return `${((n / Math.max(counts.all, 1)) * 100).toLocaleString(t.locale, { maximumFractionDigits: 1 })}%`;
   }
 
-  const title = $derived(section === "all" ? "Ваша медіатека" : t.sections[section]);
+  const title = $derived(section === "all" ? t.libraryTitle : t.sections[section]);
 </script>
 
 <div class="app-root">

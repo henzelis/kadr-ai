@@ -16,17 +16,14 @@ const EMIT_EVERY: Duration = Duration::from_millis(150);
 pub fn start_scan(app: AppHandle, state: State<'_, AppState>) -> Result<(), AppError> {
     let mut running = state.lock(&state.scan)?;
     if running.is_some() {
-        return Err(AppError::user("scan_running", "Сканування вже триває."));
+        return Err(AppError::user("scan_already_running"));
     }
     let (roots, settings) = {
         let db = state.db()?;
         (db.source_roots()?, db.load_settings()?)
     };
     if roots.is_empty() {
-        return Err(AppError::user(
-            "no_sources",
-            "Спочатку додайте папки з фото й відео.",
-        ));
+        return Err(AppError::user("no_sources"));
     }
     let cancel = Arc::new(AtomicBool::new(false));
     *running = Some(RunningScan {

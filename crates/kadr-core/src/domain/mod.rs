@@ -4,5 +4,6 @@
 pub mod captured_date;
 pub mod location;
 pub mod media_item;
+pub mod note;
 pub mod operation;
 pub mod sort_template;

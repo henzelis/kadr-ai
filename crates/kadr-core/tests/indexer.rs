@@ -176,13 +176,18 @@ fn full_scan_with_helpers_reads_dates_gps_and_video() {
             .note
             .as_ref()
             .unwrap()
-            .contains("UTC")
+            .code
+            .starts_with("utc")
     );
 
     // Content beats extension, with a warning.
     let fake = by_name(&rows, "png_named_as.jpg");
     assert_eq!(fake.detected_type.as_deref(), Some("PNG"));
-    assert!(fake.warnings.iter().any(|w| w.contains(".jpg")));
+    assert!(
+        fake.warnings
+            .iter()
+            .any(|w| w.code == "ext_mismatch" && w.args["ext"] == "jpg")
+    );
     // §18.11 a damaged file is indexed with a status and does not stop the scan.
     let bad = by_name(&rows, "corrupt.jpg");
     assert_eq!(bad.metadata_status, MetadataStatus::Partial);
@@ -261,12 +266,7 @@ fn works_without_external_helpers() {
     assert!(full.gps.is_some());
     let mov = by_name(&rows, "iphone.mov");
     assert_eq!(mov.metadata_status, MetadataStatus::Unavailable);
-    assert!(
-        mov.last_error
-            .as_ref()
-            .unwrap()
-            .contains("Перевстановіть Kadr")
-    );
+    assert!(mov.last_error.as_ref().unwrap().code == "no_helper");
     assert!(
         all(&e.db, LibrarySection::Review)
             .iter()

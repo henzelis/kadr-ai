@@ -39,22 +39,14 @@ pub async fn import_geobase(
     path: String,
 ) -> Result<GeobaseInfo, AppError> {
     if state.lock(&state.scan)?.is_some() {
-        return Err(AppError::user(
-            "scan_running",
-            "Дочекайтеся завершення сканування.",
-        ));
+        return Err(AppError::user("scan_running"));
     }
     let source = Path::new(path.trim()).to_path_buf();
     let target = state.geobase_path.clone();
     let geocoder =
         tauri::async_runtime::spawn_blocking(move || -> Result<OfflineGeocoder, AppError> {
             // Check before copying, so a wrong file never replaces a working one.
-            OfflineGeocoder::open(&source).map_err(|_| {
-                AppError::user(
-                    "invalid_geobase",
-                    "Це не файл геобази Kadr або він пошкоджений.",
-                )
-            })?;
+            OfflineGeocoder::open(&source).map_err(|_| AppError::user("invalid_geobase"))?;
             let tmp = target.with_extension("sqlite3.tmp");
             std::fs::copy(&source, &tmp).map_err(|e| AppError::internal(&e.to_string()))?;
             std::fs::rename(&tmp, &target).map_err(|e| AppError::internal(&e.to_string()))?;
