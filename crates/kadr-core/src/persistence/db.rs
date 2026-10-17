@@ -10,7 +10,7 @@ const SETTINGS_KEY: &str = "settings";
 
 /// The local index. Opening it applies pending migrations.
 pub struct Db {
-    conn: Connection,
+    pub(super) conn: Connection,
 }
 
 impl Db {

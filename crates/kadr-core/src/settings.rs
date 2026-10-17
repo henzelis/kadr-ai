@@ -45,6 +45,9 @@ pub struct AppSettings {
     pub conflict_policy: ConflictPolicy,
     pub follow_symlinks: bool,
     pub skip_system_dirs: bool,
+    /// Compute SHA-256 of every file (needed for exact duplicates). Cached by
+    /// size and modification time, so only new or changed files are read.
+    pub compute_hashes: bool,
     pub metadata_workers: u8,
     pub thumbnail_workers: u8,
     /// Custom helper locations; `None` means "look on PATH / next to the app".
@@ -68,6 +71,7 @@ impl Default for AppSettings {
             conflict_policy: ConflictPolicy::default(),
             follow_symlinks: false,
             skip_system_dirs: true,
+            compute_hashes: true,
             metadata_workers: 4,
             thumbnail_workers: 2,
             exiftool_path: None,
