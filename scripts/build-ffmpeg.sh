@@ -41,7 +41,7 @@ CROSS
 fi
 meson setup dav1d-build "dav1d-$DAV1D_VERSION" "${MESON_CROSS[@]}" \
   --prefix="$PREFIX" --libdir=lib --default-library=static --buildtype=release \
-  -Denable_tools=false -Denable_tests=false
+  -Denable_tools=false -Denable_tests=false ${MACOSX_DEPLOYMENT_TARGET:+-Dc_args=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET -Dc_link_args=-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET}
 ninja -C dav1d-build install
 
 # --- FFmpeg (LGPL 2.1+) ------------------------------------------------------

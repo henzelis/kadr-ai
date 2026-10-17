@@ -44,6 +44,9 @@ jobs:
   macos:
     runs-on: macos-latest
     timeout-minutes: 90
+    env:
+      # Same minimum as the Kadr app: macOS 11 Big Sur.
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
     steps:
       - uses: actions/checkout@v4
       - run: brew install nasm meson ninja pkg-config
@@ -58,6 +61,7 @@ jobs:
             lipo -info out/$b
           done
           cp out-arm64/LICENSE.txt out-arm64/README.txt out/
+          otool -l out/ffmpeg | grep -A3 -E 'LC_BUILD_VERSION|LC_VERSION_MIN' | grep -E 'minos|version' | head -4
           out/ffprobe -hide_banner -version | head -1
           ! out/ffmpeg -hide_banner -buildconf | grep -q -- '--enable-gpl'
       - run: tar -C out -cJf "ffmpeg-$FFMPEG_VERSION-kadr-macos-universal.tar.xz" .
