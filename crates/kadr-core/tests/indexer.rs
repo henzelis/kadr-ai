@@ -483,3 +483,50 @@ fn manual_date_replaces_metadata_and_survives_rescan() {
             .is_none()
     );
 }
+
+#[test]
+fn sidecar_and_live_photo_travel_with_their_photo() {
+    let Some(helpers) = real_helpers() else {
+        return;
+    };
+    let mut e = env();
+    // A Live Photo pair: same name as the photo, a 1-second MOV.
+    let dir = e.lib.join("Фото");
+    fs::copy(fixtures().join("iphone.mov"), dir.join("IMG_0001.MOV")).unwrap();
+    assert_eq!(scan(&mut e, &helpers).phase, ScanPhase::Done);
+    let rows = all(&e.db, LibrarySection::All);
+    assert!(
+        !rows
+            .iter()
+            .any(|r| r.file_name == "IMG_0001.AAE" || r.file_name == "IMG_0001.MOV")
+    );
+    let photo = by_name(&rows, "IMG_0001.JPG");
+    let names: Vec<&str> = photo
+        .companions
+        .iter()
+        .map(|c| c.file_name.as_str())
+        .collect();
+    assert_eq!(names, ["IMG_0001.AAE", "IMG_0001.MOV"]);
+
+    // Renaming the photo away breaks the pair on the next scan: the MOV is a
+    // normal video again, nothing disappears.
+    fs::rename(dir.join("IMG_0001.JPG"), dir.join("other.jpg")).unwrap();
+    scan(&mut e, &helpers);
+    let rows = all(&e.db, LibrarySection::All);
+    assert!(rows.iter().any(|r| r.file_name == "IMG_0001.MOV"));
+}
+
+#[test]
+fn unknown_duration_never_hides_a_video() {
+    let mut e = env();
+    fs::copy(
+        fixtures().join("iphone.mov"),
+        e.lib.join("Фото/IMG_0001.MOV"),
+    )
+    .unwrap();
+    scan(&mut e, &Helpers::default());
+    let rows = all(&e.db, LibrarySection::All);
+    assert!(rows.iter().any(|r| r.file_name == "IMG_0001.MOV"));
+    // The AAE still belongs to the photo.
+    assert_eq!(by_name(&rows, "IMG_0001.JPG").companions.len(), 1);
+}

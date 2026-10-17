@@ -75,7 +75,7 @@
     <div class="detail-filename">{item.file_name}</div>
     <div class="detail-path">{item.path}</div>
 
-    {#if item.review_reasons.length || item.last_error || item.warnings.length}
+    {#if item.review_reasons.length || item.last_error || item.warnings.length || item.duplicates.length}
       <div class="problems">
         {#if item.last_error}
           <div class="problem error"><strong>{t.readError}</strong>{item.last_error}</div>
@@ -83,6 +83,11 @@
         {#if item.review_reasons.length}
           <div class="problem review"><strong>{t.reviewReasons}</strong>
             <ul>{#each item.review_reasons as reason, i (i)}<li>{reason}</li>{/each}</ul></div>
+        {/if}
+        {#if item.duplicates.length}
+          <div class="problem info"><strong>{t.otherCopies}</strong>
+            <ul>{#each item.duplicates as d (d.id)}<li>{d.path}</li>{/each}</ul>
+            <div>{t.otherCopiesHint}</div></div>
         {/if}
         {#if item.warnings.length}
           <div class="problem info"><strong>{t.warnings}</strong>
@@ -148,6 +153,15 @@
       {/if}
       <div class="detail-row"><div class="detail-label">SHA-256</div>
         <div class="detail-value mono small">{item.sha256 ? `${item.sha256.slice(0, 8)}…${item.sha256.slice(-4)}` : "—"}</div></div>
+      {#if item.companions.length}
+        <div class="detail-row"><div class="detail-label">{t.sidecars}</div>
+          <div class="detail-value">
+            {#each item.companions as c (c.id)}
+              <div>{c.file_name} <span class="muted">· {t.companionRole[c.role]} · {formatSize(c.size_bytes)}</span></div>
+            {/each}
+            <div class="muted small-note">{t.companionsHint}</div>
+          </div></div>
+      {/if}
       {#if item.video_codec || item.audio_codec}
         <div class="detail-row"><div class="detail-label">{t.codecs}</div><div class="detail-value">{[item.video_codec, item.audio_codec].filter(Boolean).join(" · ")}</div></div>
       {/if}
@@ -192,6 +206,8 @@
   .detail-label { color: var(--muted); font-size: 10px; }
   .detail-value { font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; font-weight: 570; }
   .small { font-size: 10px; }
+  .muted { color: var(--muted); font-weight: 500; }
+  .small-note { font-size: 9px; margin-top: 4px; line-height: 1.4; }
   .note { font-size: 10px; color: var(--amber); background: var(--amber-soft); border-radius: 7px; padding: 7px 9px; line-height: 1.45; }
   .gps-panel { display: flex; gap: 9px; align-items: center; padding: 10px; border-radius: 9px; background: var(--surface-soft); margin-top: 10px; }
   .gps-pin { width: 27px; height: 27px; border-radius: 8px; display: grid; place-items: center; color: var(--accent); background: var(--surface); font-size: 15px; }

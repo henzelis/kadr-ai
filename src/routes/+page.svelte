@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import {
     cancelScan, errorMessage, getFolders, getLibrarySummary, getScanStatus, getSectionCounts, getSettings,
-    inTauri, onScanEvents, pickDestinationFolder, pickSourceFolders, queryMedia, removeSourceRoot, startScan,
+    inTauri, onScanEvents, pickDestinationFolder, pickSourceFolders, removeSourceRoot, startScan,
     updateSettings,
   } from "$lib/api";
   import Gallery from "$lib/components/Gallery.svelte";
@@ -14,6 +14,7 @@
   import { demoMedia } from "$lib/demo";
   import { demoDestination, formatCount, monthFolder } from "$lib/format";
   import { t } from "$lib/i18n/uk";
+  import { PagedLibrary } from "$lib/library.svelte";
   import type {
     AppSettings, Folders, KindFilter, LastScan, LibrarySection, LibrarySummary, MediaView, ScanProgress, SectionCounts, SortKey,
   } from "$lib/types";
@@ -32,8 +33,8 @@
   let kind = $state<KindFilter>("all");
   let query = $state("");
   let sort = $state<SortKey>("date");
-  let items = $state<MediaView[]>([]);
-  let total = $state(0);
+  const library = new PagedLibrary(PAGE);
+  let mainEl = $state<HTMLElement>();
   let selected = $state(new Set<number>());
   let scan = $state<ScanProgress | null>(null);
   let lastScan = $state<LastScan | null>(null);
@@ -42,10 +43,9 @@
   let settingsOpen = $state(false);
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  let requestSeq = 0;
 
   const librarySection = $derived(section === "plan" || section === "history" ? "all" : section);
-  const focused = $derived(selected.size === 1 ? (items.find((m) => selected.has(m.id)) ?? null) : null);
+  const focused = $derived(selected.size === 1 ? (library.find([...selected][0]) ?? null) : null);
   const hasSources = $derived((folders?.sources.length ?? 0) > 0);
 
   function notify(text: string) {
@@ -54,28 +54,14 @@
     toastTimer = setTimeout(() => (toast = null), 3600);
   }
 
-  async function load(append = false) {
-    const seq = ++requestSeq;
+  /** Starts the current query from the top. */
+  async function load() {
     try {
-      const page = await queryMedia({
-        section: toQuerySection[librarySection], kind, search: query, sort,
-        offset: append ? items.length : 0, limit: PAGE,
-      });
-      if (seq !== requestSeq) return; // a newer query superseded this one
-      items = append ? [...items, ...page.items] : page.items;
-      total = page.total;
-      if (!append && selected.size === 0 && items.length) selected = new Set([items[0].id]);
+      await library.reset({ section: toQuerySection[librarySection], kind, search: query, sort });
+      const first = library.item(0);
+      if (selected.size === 0 && first) selected = new Set([first.id]);
     } catch (e) {
       notify(errorMessage(e));
-    }
-  }
-
-  async function refreshTotal() {
-    try {
-      const page = await queryMedia({ section: toQuerySection[librarySection], kind, search: query, sort, offset: 0, limit: 1 });
-      total = page.total;
-    } catch {
-      // the next progress event will try again
     }
   }
 
@@ -105,12 +91,12 @@
 
   /** Puts edited rows in place and refreshes the counters. */
   function applyEdited(rows: MediaView[]) {
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    items = items.map((m) => byId.get(m.id) ?? m);
+    library.update(rows);
     void refreshCounts();
   }
 
-  function pick(id: number, additive: boolean) {
+  function pick(item: MediaView, additive: boolean) {
+    const id = item.id;
     const next = new Set(additive ? selected : []);
     if (additive && next.has(id)) next.delete(id);
     else next.add(id);
@@ -200,10 +186,8 @@
             if (Date.now() - lastRefresh > 2000) {
               lastRefresh = Date.now();
               void refreshCounts();
-              // A short list is simply reloaded; a longer one keeps the
-              // user's place and only updates its total.
-              if (items.length < PAGE) void load();
-              else void refreshTotal();
+              // Pages on screen are refreshed in place; the scroll position stays.
+              void library.refreshLoaded();
             }
           },
           finished: (p) => {
@@ -212,7 +196,7 @@
             cancelling = false;
             notify(p.phase === "cancelled" ? t.scanCancelled : t.scanFinished(p.processed, p.errors));
             void refreshCounts();
-            void load();
+            void library.refreshLoaded();
             void getFolders().then((f) => (folders = f));
             void getScanStatus().then((st) => (lastScan = st.last));
           },
@@ -253,7 +237,7 @@
       onSelect={(s) => { section = s; selected = new Set(); }}
       onAddSources={addSources} onRemoveSource={removeSource} onChangeDestination={changeDestination} onCancelScan={stopScan} />
 
-    <main class="main">
+    <main class="main" bind:this={mainEl}>
       <div class="main-header">
         <div>
           <div class="eyebrow"><span>{t.workspace}</span><span aria-hidden="true">›</span><span>{t.sections[section]}</span></div>
@@ -308,8 +292,8 @@
           </div>
           <button class="icon-button" title={t.settings} aria-label={t.settings} onclick={() => (settingsOpen = true)}>⚙</button>
         </div>
-        <Gallery {items} {total} {demo} {scanning} {selected} bind:kind bind:query bind:sort
-          title={t.sections[librarySection]} onPick={pick} onMore={() => load(true)} />
+        <Gallery {library} {demo} {scanning} {selected} scroller={mainEl} bind:kind bind:query bind:sort
+          title={t.sections[librarySection]} onPick={pick} />
       {/if}
     </main>
 
@@ -332,8 +316,8 @@
 </div>
 
 {#if settingsOpen && settings}
-  <SettingsDialog {settings} onClose={() => (settingsOpen = false)} onLibraryChanged={() => { void refreshCounts(); void load(); }}
-    onSaved={(s) => { settings = s; applyTheme(s); settingsOpen = false; notify(t.settingsDialog.saved); void refreshCounts(); void load(); }} />
+  <SettingsDialog {settings} onClose={() => (settingsOpen = false)} onLibraryChanged={() => { void refreshCounts(); void library.refreshLoaded(); }}
+    onSaved={(s) => { settings = s; applyTheme(s); settingsOpen = false; notify(t.settingsDialog.saved); void refreshCounts(); void library.refreshLoaded(); }} />
 {/if}
 
 <div class="toast" class:show={toast !== null} role="status" aria-live="polite">{toast ?? ""}</div>

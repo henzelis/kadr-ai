@@ -183,7 +183,15 @@ const demoIn = {
   no_gps: (m: MediaView) => m.place_status !== "resolved",
 };
 
+/** `?demo=5000` in a plain browser repeats the demo records, for layout and
+ *  scrolling checks of large libraries. */
+const demoRepeat = typeof location === "undefined" ? 1 : Math.max(1, Number(new URLSearchParams(location.search).get("demo")) || 1);
+const demoAll: MediaView[] = Array.from({ length: demoRepeat }, (_, r) =>
+  demoMedia.map((m) => (r === 0 ? m : { ...m, id: m.id + r * 1000, file_name: `${r}_${m.file_name}`, sha256: m.sha256 && `${m.sha256}${r}` })),
+).flat();
+
 function demoQuery(q: MediaQuery): MediaPage {
+  const demoMedia = demoAll;
   const dups = duplicateIds(demoMedia);
   const inSection = q.section === "duplicates" ? (m: MediaView) => dups.has(m.id) : demoIn[q.section];
   const needle = q.search.trim().toLocaleLowerCase("uk");
@@ -201,7 +209,11 @@ function demoQuery(q: MediaQuery): MediaPage {
     : q.sort === "size" ? b.size_bytes - a.size_bytes
     : byDate(b).localeCompare(byDate(a)),
   );
-  return { items: sorted.slice(q.offset, q.offset + q.limit), total: sorted.length };
+  const withCopies = sorted.slice(q.offset, q.offset + q.limit).map((m) => ({
+    ...m,
+    duplicates: m.sha256 ? demoMedia.filter((o) => o.sha256 === m.sha256 && o.id !== m.id).map((o) => ({ id: o.id, path: o.path })) : [],
+  }));
+  return { items: withCopies, total: sorted.length };
 }
 
 export async function queryMedia(query: MediaQuery): Promise<MediaPage> {
@@ -224,13 +236,13 @@ export async function getSectionCounts(): Promise<SectionCounts> {
   if (!inTauri) {
     const count = (s: MediaQuery["section"]) => demoQuery({ section: s, kind: "all", search: "", sort: "date", offset: 0, limit: 0 }).total;
     return {
-      all: demoMedia.length,
+      all: demoAll.length,
       review: count("review"),
       nodate: count("no_date"),
       nogps: count("no_gps"),
       duplicates: count("duplicates"),
-      with_date: demoMedia.filter((m) => m.captured && m.captured.status !== "file_system_fallback").length,
-      with_gps: demoMedia.filter((m) => m.gps).length,
+      with_date: demoAll.filter((m) => m.captured && m.captured.status !== "file_system_fallback").length,
+      with_gps: demoAll.filter((m) => m.gps).length,
     };
   }
   return invoke<SectionCounts>("get_section_counts");

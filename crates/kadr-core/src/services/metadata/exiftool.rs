@@ -39,6 +39,7 @@ const TAGS: &[&str] = &[
     "-Duration",
     "-Rotation",
     "-Orientation",
+    "-ContentIdentifier",
     "-Make",
     "-Model",
     "-Warning",

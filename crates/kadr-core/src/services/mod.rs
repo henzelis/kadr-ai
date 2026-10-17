@@ -1,3 +1,4 @@
+pub mod companions;
 pub mod detect;
 pub mod geocoder;
 pub mod indexer;

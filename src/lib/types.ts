@@ -74,8 +74,17 @@ export interface GeoPoint {
 
 export type MetadataStatus = "not_read" | "read" | "partial" | "unavailable" | "failed";
 
+export interface Companion {
+  id: number;
+  file_name: string;
+  role: "sidecar" | "live_video";
+  size_bytes: number;
+}
+
 /** Library item as returned by `query_media` (Rust `MediaRow`). */
 export interface MediaView {
+  companions: Companion[];
+  duplicates: { id: number; path: string }[];
   id: number;
   path: string;
   mtime: number;

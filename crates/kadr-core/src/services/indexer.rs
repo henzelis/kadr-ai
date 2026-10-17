@@ -605,6 +605,7 @@ pub fn run_scan(
             )?;
         }
         db.mark_missing(root.id, scan_ts)?;
+        db.relink_companions(root.id)?;
     }
 
     let cancelled = cancel.load(Ordering::Relaxed);

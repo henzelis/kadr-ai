@@ -1,29 +1,79 @@
 <script lang="ts">
-  import { formatDuration, formatShortDate, metaState } from "$lib/format";
+  import { formatShortDate, metaState } from "$lib/format";
   import { t } from "$lib/i18n/uk";
+  import type { PagedLibrary } from "$lib/library.svelte";
+  import type { KindFilter, MediaView, SortKey } from "$lib/types";
   import Thumb from "./Thumb.svelte";
-  import type { MediaView } from "$lib/types";
-
-  import type { KindFilter, SortKey } from "$lib/types";
+  import { formatDuration } from "$lib/format";
 
   let {
-    items, total, demo, scanning = false, selected, kind = $bindable(), query = $bindable(), sort = $bindable(), title, onPick, onMore,
+    library, demo, scanning = false, selected, scroller, kind = $bindable(), query = $bindable(), sort = $bindable(), title, onPick,
   }: {
-    items: MediaView[];
-    total: number;
+    library: PagedLibrary;
     demo: boolean;
     scanning?: boolean;
     selected: Set<number>;
+    /** The element that scrolls (the main column). */
+    scroller: HTMLElement | undefined;
     kind: KindFilter;
     query: string;
     sort: SortKey;
     title: string;
-    onPick: (id: number, additive: boolean) => void;
-    onMore: () => void;
+    onPick: (item: MediaView, additive: boolean) => void;
   } = $props();
 
-  function pick(event: MouseEvent | KeyboardEvent, id: number) {
-    onPick(id, event.ctrlKey || event.metaKey || event.shiftKey);
+  const MIN_CARD = 210;
+  const GAP = 13;
+  /** Height of the text part under the picture; fixed so rows are uniform. */
+  const INFO_H = 96;
+  const OVERSCAN_ROWS = 3;
+
+  let grid: HTMLDivElement | undefined = $state();
+  let width = $state(0);
+  let scrollTop = $state(0);
+  let viewport = $state(800);
+  let gridTop = $state(0);
+
+  const cols = $derived(Math.max(1, Math.floor((width + GAP) / (MIN_CARD + GAP))));
+  const cardW = $derived(cols > 0 ? (width - GAP * (cols - 1)) / cols : MIN_CARD);
+  const rowH = $derived(Math.round(cardW / 1.52) + INFO_H + 2);
+  const stride = $derived(rowH + GAP);
+  const rows = $derived(Math.ceil(library.total / cols));
+  const firstRow = $derived(Math.max(0, Math.floor((scrollTop - gridTop) / stride) - OVERSCAN_ROWS));
+  const lastRow = $derived(Math.min(rows, Math.ceil((scrollTop - gridTop + viewport) / stride) + OVERSCAN_ROWS));
+  const start = $derived(firstRow * cols);
+  const end = $derived(Math.min(library.total, lastRow * cols));
+  const indices = $derived(Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i));
+
+  $effect(() => library.ensure(start, end));
+
+  function measure() {
+    if (!scroller || !grid) return;
+    scrollTop = scroller.scrollTop;
+    viewport = scroller.clientHeight;
+    gridTop = grid.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  }
+
+  $effect(() => {
+    if (!scroller || !grid) return;
+    const el = scroller;
+    measure();
+    const onScroll = () => measure();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const ro = new ResizeObserver(() => {
+      width = grid?.clientWidth ?? width;
+      measure();
+    });
+    ro.observe(grid);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      ro.disconnect();
+    };
+  });
+
+  function pick(event: MouseEvent, item: MediaView) {
+    onPick(item, event.ctrlKey || event.metaKey || event.shiftKey);
   }
 </script>
 
@@ -49,45 +99,53 @@
     </div>
   </div>
 
-  <div class="section-heading"><span>{title}</span><small>{t.shown(items.length, total)}</small></div>
+  <div class="section-heading"><span>{title}</span><small>{t.totalFiles(library.total)}</small></div>
 
-  <div class="media-grid">
-    {#each items as item (item.id)}
-      {@const state = metaState(item)}
-      <button class="media-card" class:selected={selected.has(item.id)} aria-pressed={selected.has(item.id)}
-        onclick={(e) => pick(e, item.id)}>
-        <div class="media-visual">
-          <Thumb {item} size="grid" {demo} />
-          <span class="kind-badge"><span class="tiny-dot"></span>{t.kindBadge[item.kind]}</span>
-          <span class="selection-check" aria-hidden="true">✓</span>
-          {#if item.duration_ms !== null}<span class="duration">{formatDuration(item.duration_ms)}</span>{/if}
-        </div>
-        <div class="media-info">
-          <div class="media-name-row">
-            <span class="media-name">{item.file_name}</span>
-            <span class="format-tag">{item.extension.toUpperCase()}</span>
-          </div>
-          <div class="media-sub">
-            <span>{item.captured ? formatShortDate(item.captured.local) : t.unknown}</span>
-            <span aria-hidden="true">·</span>
-            <span class="place">{item.place_label ?? "—"}</span>
-          </div>
-          <span class="chip state" class:review={state.tone === "review"} class:missing={state.tone === "missing"}>
-            <span class="state-dot" aria-hidden="true"></span>{state.label}
-          </span>
-        </div>
-      </button>
+  {#if library.total === 0 && !library.loading}
+    {#if scanning && !query}
+      <div class="empty-state"><strong>{t.scanning}</strong>{t.scanningHint}</div>
     {:else}
-      {#if scanning && !query}
-        <div class="empty-state"><strong>{t.scanning}</strong>{t.scanningHint}</div>
-      {:else}
-        <div class="empty-state"><strong>{t.nothingFound}</strong>{t.nothingFoundHint}</div>
-      {/if}
-    {/each}
-  </div>
-  {#if items.length < total}
-    <div class="more"><button class="secondary" onclick={onMore}>{t.showMore(total - items.length)}</button></div>
+      <div class="empty-state"><strong>{t.nothingFound}</strong>{t.nothingFoundHint}</div>
+    {/if}
   {/if}
+
+  <div class="vgrid" bind:this={grid} style:height="{Math.max(0, rows * stride - GAP)}px">
+    <div class="window" style:transform="translateY({firstRow * stride}px)"
+      style:grid-template-columns="repeat({cols}, minmax(0, 1fr))" style:grid-auto-rows="{rowH}px">
+      {#each indices as index (index)}
+        {@const item = library.item(index)}
+        {#if item}
+          {@const state = metaState(item)}
+          <button class="media-card" class:selected={selected.has(item.id)} aria-pressed={selected.has(item.id)}
+            onclick={(e) => pick(e, item)}>
+            <div class="media-visual">
+              <Thumb {item} size="grid" {demo} />
+              <span class="kind-badge"><span class="tiny-dot"></span>{t.kindBadge[item.kind]}{#if item.companions.some((c) => c.role === "live_video")}<span class="live">LIVE</span>{/if}</span>
+              <span class="selection-check" aria-hidden="true">✓</span>
+              {#if item.duration_ms !== null}<span class="duration">{formatDuration(item.duration_ms)}</span>{/if}
+            </div>
+            <div class="media-info">
+              <div class="media-name-row">
+                <span class="media-name" title={item.file_name}>{item.file_name}</span>
+                {#if item.duplicates.length}<span class="dup-tag" title={t.otherCopies}>{t.copies(item.duplicates.length)}</span>{/if}
+                <span class="format-tag">{item.extension.toUpperCase()}</span>
+              </div>
+              <div class="media-sub">
+                <span>{item.captured ? formatShortDate(item.captured.local) : t.unknown}</span>
+                <span aria-hidden="true">·</span>
+                <span class="place">{item.place_label ?? "—"}</span>
+              </div>
+              <span class="chip state" class:review={state.tone === "review"} class:missing={state.tone === "missing"}>
+                <span class="state-dot" aria-hidden="true"></span>{state.label}
+              </span>
+            </div>
+          </button>
+        {:else}
+          <div class="media-card skeleton" aria-hidden="true"></div>
+        {/if}
+      {/each}
+    </div>
+  </div>
 </section>
 
 <style>
@@ -103,38 +161,32 @@
   .sort-select { height: 35px; border-radius: 9px; padding: 0 8px; background: var(--surface); border: 1px solid var(--line); }
   .section-heading { display: flex; align-items: baseline; gap: 9px; margin: 0 0 13px; font-size: 14px; font-weight: 720; }
   .section-heading small { font-size: 11px; color: var(--muted); font-weight: 500; }
-  .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 13px; }
+  .vgrid { position: relative; }
+  .window { display: grid; gap: 13px; will-change: transform; }
   .media-card {
     padding: 0; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-    min-width: 0; overflow: hidden; position: relative; transition: border-color .14s, box-shadow .14s, transform .14s;
+    min-width: 0; overflow: hidden; position: relative; display: flex; flex-direction: column;
+    transition: border-color .14s, box-shadow .14s;
   }
-  .media-card:hover { border-color: light-dark(#bdcbb5, #50644f); transform: translateY(-1px); box-shadow: var(--shadow); }
+  .media-card:hover { border-color: light-dark(#bdcbb5, #50644f); box-shadow: var(--shadow); }
   .media-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-  .media-visual { position: relative; aspect-ratio: 1.52 / 1; overflow: hidden; background: var(--surface-soft); }
-  .more { display: flex; justify-content: center; margin-top: 16px; }
-  .media-visual :global(svg) { display: block; width: 100%; height: 100%; }
-  .kind-badge {
-    position: absolute; top: 8px; left: 8px; padding: 5px 7px; display: flex; gap: 5px; align-items: center;
-    border-radius: 6px; background: rgb(22 29 22 / 76%); color: #fff; font-size: 9px; font-weight: 700;
-  }
+  .skeleton { background: var(--surface-soft); border-style: dashed; }
+  .media-visual { position: relative; aspect-ratio: 1.52 / 1; overflow: hidden; background: var(--surface-soft); flex: 0 0 auto; }
+  .kind-badge { position: absolute; top: 8px; left: 8px; padding: 5px 7px; display: flex; gap: 5px; align-items: center; border-radius: 6px; background: rgb(22 29 22 / 76%); color: #fff; font-size: 9px; font-weight: 700; }
+  .live { margin-left: 3px; padding-left: 5px; border-left: 1px solid rgb(255 255 255 / 35%); }
   .tiny-dot { width: 5px; height: 5px; border-radius: 50%; background: #c8e2bb; }
-  .selection-check {
-    position: absolute; top: 8px; right: 8px; border-radius: 6px; color: #fff; width: 22px; height: 22px;
-    display: grid; place-items: center; font-size: 12px; opacity: 0; background: var(--accent);
-  }
+  .selection-check { position: absolute; top: 8px; right: 8px; border-radius: 6px; color: #fff; width: 22px; height: 22px; display: grid; place-items: center; font-size: 12px; opacity: 0; background: var(--accent); }
   .media-card.selected .selection-check { opacity: 1; }
   .duration { position: absolute; bottom: 8px; right: 8px; border-radius: 5px; background: rgb(20 24 21 / 79%); color: #fff; padding: 4px 6px; font-size: 9px; font-weight: 700; }
-  .media-info { padding: 10px 11px 11px; }
+  .media-info { padding: 10px 11px 11px; min-height: 0; overflow: hidden; }
   .media-name-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
   .media-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 720; flex: 1; }
+  .dup-tag { color: var(--amber); background: var(--amber-soft); border-radius: 4px; padding: 2px 4px; font-size: 8px; font-weight: 750; white-space: nowrap; }
   .format-tag { color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; font-size: 8px; font-weight: 750; }
   .media-sub { display: flex; gap: 6px; color: var(--muted); font-size: 10px; margin-top: 8px; min-width: 0; }
   .place { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .state { margin-top: 10px; }
-  .state-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-  .empty-state {
-    grid-column: 1 / -1; border: 1px dashed var(--line); border-radius: 12px; padding: 45px 20px;
-    text-align: center; color: var(--muted); background: var(--surface);
-  }
+  .state { margin-top: 10px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .state-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
+  .empty-state { border: 1px dashed var(--line); border-radius: 12px; padding: 45px 20px; text-align: center; color: var(--muted); background: var(--surface); }
   .empty-state strong { display: block; color: var(--text); margin-bottom: 7px; font-size: 14px; }
 </style>

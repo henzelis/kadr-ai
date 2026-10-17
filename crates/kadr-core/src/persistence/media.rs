@@ -166,7 +166,26 @@ pub struct MediaQuery {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct DuplicateInfo {
+    pub id: i64,
+    pub path: String,
+}
+
+/// A file that travels with a main file (sidecar, Live Photo video).
+#[derive(Debug, Clone, Serialize)]
+pub struct CompanionInfo {
+    pub id: i64,
+    pub file_name: String,
+    pub role: crate::services::companions::CompanionRole,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct MediaRow {
+    /// Sidecars and Live Photo videos that belong to this file.
+    pub companions: Vec<CompanionInfo>,
+    /// Other indexed files with exactly the same content (SHA-256).
+    pub duplicates: Vec<DuplicateInfo>,
     pub id: i64,
     pub path: String,
     /// Modification time, ms; also busts cached thumbnails in the UI.
@@ -288,6 +307,8 @@ fn read_row(r: &Row<'_>) -> rusqlite::Result<MediaRow> {
         warnings: json_list(r.get(28)?),
         last_error: r.get(29)?,
         mtime: r.get(30)?,
+        companions: Vec::new(),
+        duplicates: Vec::new(),
     })
 }
 
@@ -515,6 +536,12 @@ impl Db {
             "FROM media_item m WHERE {VISIBLE} AND {} AND {kind} AND (?1 = '' OR m.search_text LIKE ?2 ESCAPE '\\')",
             section_sql(q.section)
         );
+        // Copies of one file stand next to each other in the duplicates list.
+        let group = if q.section == LibrarySection::Duplicates {
+            "m.sha256, "
+        } else {
+            ""
+        };
         let order = match q.sort {
             SortKey::Date => "m.captured_at_local IS NULL, m.captured_at_local DESC, m.file_name",
             SortKey::Name => "m.file_name COLLATE NOCASE, m.id",
@@ -526,11 +553,13 @@ impl Db {
             |r| r.get(0),
         )?;
         let limit = if q.limit == 0 { 200 } else { q.limit.min(1000) };
-        let sql = format!("SELECT {ROW_COLUMNS} {filter} ORDER BY {order} LIMIT ?3 OFFSET ?4");
+        let sql =
+            format!("SELECT {ROW_COLUMNS} {filter} ORDER BY {group}{order} LIMIT ?3 OFFSET ?4");
         let mut stmt = self.conn.prepare(&sql)?;
-        let items = stmt
+        let mut items: Vec<MediaRow> = stmt
             .query_map(params![search, pattern, limit, q.offset], read_row)?
             .collect::<Result<_, _>>()?;
+        self.attach_companions(&mut items)?;
         Ok(MediaPage {
             items,
             total: u64::try_from(total).unwrap_or(0),
@@ -538,14 +567,111 @@ impl Db {
     }
 
     pub fn media_details(&self, id: i64) -> CoreResult<Option<MediaRow>> {
-        Ok(self
+        let row = self
             .conn
             .query_row(
                 &format!("SELECT {ROW_COLUMNS} FROM media_item m WHERE m.id = ?1"),
                 params![id],
                 read_row,
             )
-            .optional()?)
+            .optional()?;
+        Ok(match row {
+            Some(r) => {
+                let mut v = vec![r];
+                self.attach_companions(&mut v)?;
+                v.pop()
+            }
+            None => None,
+        })
+    }
+
+    fn attach_companions(&self, rows: &mut [MediaRow]) -> CoreResult<()> {
+        let mut dups = self.conn.prepare_cached(
+            "SELECT id, path FROM media_item
+             WHERE sha256 = ?1 AND id <> ?2 AND is_sidecar = 0 AND is_missing = 0 ORDER BY path",
+        )?;
+        for row in rows.iter_mut() {
+            if let Some(sha) = &row.sha256 {
+                row.duplicates = dups
+                    .query_map(params![sha, row.id], |r| {
+                        Ok(DuplicateInfo {
+                            id: r.get(0)?,
+                            path: r.get(1)?,
+                        })
+                    })?
+                    .collect::<Result<_, _>>()?;
+            }
+        }
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT id, file_name, companion_role, size_bytes FROM media_item
+             WHERE sidecar_parent_id = ?1 AND is_missing = 0 ORDER BY file_name",
+        )?;
+        for row in rows {
+            row.companions = stmt
+                .query_map(params![row.id], |r| {
+                    Ok(CompanionInfo {
+                        id: r.get(0)?,
+                        file_name: r.get(1)?,
+                        role: r
+                            .get::<_, Option<String>>(2)?
+                            .and_then(|s| enum_parse(&s))
+                            .unwrap_or(crate::services::companions::CompanionRole::Sidecar),
+                        size_bytes: u64::try_from(r.get::<_, i64>(3)?).unwrap_or(0),
+                    })
+                })?
+                .collect::<Result<_, _>>()?;
+        }
+        Ok(())
+    }
+
+    /// Recomputes which files of a root are companions of which.
+    pub fn relink_companions(&mut self, root_id: i64) -> CoreResult<usize> {
+        use crate::services::companions::{Candidate, find_links};
+        let candidates: Vec<Candidate> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT id, path, media_kind, duration_ms, metadata_json FROM media_item
+                 WHERE source_root_id = ?1 AND is_missing = 0",
+            )?;
+            stmt.query_map(params![root_id], |r| {
+                let json: Option<String> = r.get(4)?;
+                let content_id = json
+                    .and_then(|j| {
+                        serde_json::from_str::<crate::services::metadata::RawMetadata>(&j).ok()
+                    })
+                    .and_then(|m| {
+                        m.all_with_tag("ContentIdentifier")
+                            .find_map(|(_, v)| v.as_str().map(str::to_owned))
+                    });
+                Ok(Candidate {
+                    id: r.get(0)?,
+                    path: r.get(1)?,
+                    kind: enum_parse(&r.get::<_, String>(2)?).unwrap_or(MediaKind::Unsupported),
+                    duration_ms: r
+                        .get::<_, Option<i64>>(3)?
+                        .and_then(|d| u64::try_from(d).ok()),
+                    content_id,
+                })
+            })?
+            .collect::<Result<_, _>>()?
+        };
+        let links = find_links(&candidates);
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "UPDATE media_item SET sidecar_parent_id = NULL, companion_role = NULL,
+                    is_sidecar = (media_kind = 'sidecar')
+             WHERE source_root_id = ?1",
+            params![root_id],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                "UPDATE media_item SET sidecar_parent_id = ?2, companion_role = ?3, is_sidecar = 1 WHERE id = ?1",
+            )?;
+            for l in &links {
+                stmt.execute(params![l.child, l.parent, enum_str(&l.role)])?;
+            }
+        }
+        tx.commit()?;
+        Ok(links.len())
     }
 
     /// Facts the thumbnailer needs for one item.
