@@ -352,6 +352,7 @@ export const en: Strings = {
     copy: "Copy",
     move: "Move",
   },
+  folderLanguageAuto: "Same as the interface",
   folderLanguage: "Language of folder and place names",
   notes: {
     plan_no_date: () => "No date — goes to the folder for files without a date",

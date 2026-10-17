@@ -30,6 +30,10 @@ pub struct AppSettings {
     /// Language of folder and place names in the archive. `None` until the
     /// app sets it to the interface language on first start.
     pub folder_language: Option<Language>,
+    /// Folder language follows the interface language (the app updates
+    /// `folder_language` whenever the interface language changes). Off when
+    /// the user picked a folder language of their own.
+    pub folder_language_follows_ui: bool,
     /// Root of the sorted archive. Never scanned as a source.
     pub destination_root: Option<String>,
     pub folder_template: String,
@@ -65,6 +69,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             folder_language: None,
+            folder_language_follows_ui: true,
             destination_root: None,
             folder_template: DEFAULT_TEMPLATE.to_owned(),
             month_format: MonthFormat::default(),
@@ -216,6 +221,16 @@ mod tests {
         assert!(!s.follow_symlinks);
         assert_eq!(s.conflict_policy, ConflictPolicy::AddSuffix);
         assert_eq!(s.place_granularity, PlaceGranularity::City);
+    }
+
+    #[test]
+    fn folder_language_follows_the_interface_by_default() {
+        assert!(AppSettings::default().folder_language_follows_ui);
+        let old: AppSettings = serde_json::from_str(r#"{"folder_language":"uk"}"#).unwrap();
+        assert!(
+            old.folder_language_follows_ui,
+            "settings saved before this option follow too"
+        );
     }
 
     #[test]

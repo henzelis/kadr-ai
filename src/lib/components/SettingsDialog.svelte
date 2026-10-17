@@ -1,7 +1,7 @@
 <script lang="ts">
   import { errorMessage, getGeobaseStatus, getToolStatus, inTauri, isAppError, pickGeobaseFile, updateSettings } from "$lib/api";
   import { formatCount, monthFolder } from "$lib/format";
-  import { setLangChoice, storedLangChoice, t } from "$lib/i18n";
+  import { resolveLang, setLangChoice, storedLangChoice, t } from "$lib/i18n";
   import type { AppSettings, GeobaseInfo, ToolStatus } from "$lib/types";
 
   let { settings, onClose, onSaved, onLibraryChanged }: {
@@ -27,6 +27,13 @@
   let tools = $state<ToolStatus[] | null>(null);
   const initialLang = storedLangChoice();
   let langChoice = $state(initialLang);
+  // "auto" = folder names follow the interface language.
+  // svelte-ignore state_referenced_locally
+  let folderChoice = $state<"auto" | "uk" | "en">(settings.folder_language_follows_ui ? "auto" : (settings.folder_language ?? "uk"));
+  $effect(() => {
+    draft.folder_language_follows_ui = folderChoice === "auto";
+    draft.folder_language = folderChoice === "auto" ? resolveLang(langChoice) : folderChoice;
+  });
   let geobase = $state<GeobaseInfo | null>(null);
   let importing = $state(false);
   let notice = $state<string | null>(null);
@@ -118,7 +125,8 @@
           </select>
         </label>
         <label class="row">{t.folderLanguage}
-          <select bind:value={draft.folder_language}>
+          <select bind:value={folderChoice}>
+            <option value="auto">{t.folderLanguageAuto}</option>
             <option value="uk">Українська (Серпень, Невідома дата, Київ)</option>
             <option value="en">English (August, Unknown date, Kyiv)</option>
           </select>

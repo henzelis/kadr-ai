@@ -46,7 +46,9 @@
 
   async function refresh() {
     try {
-      summary = await getPlanSummary();
+      const latest = await getPlanSummary();
+      // An undone plan is history (see the activity log), not the current plan.
+      summary = latest && latest.state !== "undone" ? latest : null;
       if (summary) mode = summary.mode;
       await loadRows();
     } catch (e) {

@@ -9,6 +9,7 @@ export type OperationMode = "copy" | "move";
 
 export interface AppSettings {
   folder_language: "uk" | "en" | null;
+  folder_language_follows_ui: boolean;
   destination_root: string | null;
   folder_template: string;
   month_format: MonthFormat;

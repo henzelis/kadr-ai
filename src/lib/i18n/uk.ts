@@ -351,6 +351,7 @@ export const uk = {
     copy: "Копіювання",
     move: "Переміщення",
   },
+  folderLanguageAuto: "Як мова інтерфейсу",
   folderLanguage: "Мова назв папок і місць",
   notes: {
     plan_no_date: () => "Немає дати — піде в папку для файлів без дати",

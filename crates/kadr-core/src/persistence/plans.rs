@@ -195,6 +195,13 @@ impl Db {
         Ok(plan_id)
     }
 
+    /// Drops plans that were never run, e.g. after folder names changed.
+    pub fn discard_draft_plans(&self) -> CoreResult<usize> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM operation_plan WHERE state = 'draft'", [])?)
+    }
+
     pub fn latest_plan_id(&self) -> CoreResult<Option<i64>> {
         Ok(self
             .conn

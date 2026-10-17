@@ -176,7 +176,11 @@
     void (async () => {
       try {
         settings = await getSettings();
-        if (settings.folder_language === null) settings = await updateSettings({ ...settings, folder_language: lang });
+        // Folder and place names follow the interface language unless the
+        // user chose a folder language of their own.
+        if (settings.folder_language === null || (settings.folder_language_follows_ui && settings.folder_language !== lang)) {
+          settings = await updateSettings({ ...settings, folder_language: lang });
+        }
         applyTheme(settings);
         folders = await getFolders();
         await refreshCounts();

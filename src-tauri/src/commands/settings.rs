@@ -42,6 +42,8 @@ pub async fn update_settings(
             return Err(AppError::user("saved_after_scan"));
         }
         crate::commands::geobase::renormalize_in_background(&state, stored.clone()).await?;
+        // A plan made with the old folder or place names must not be run.
+        state.db()?.discard_draft_plans()?;
     }
     Ok(stored)
 }

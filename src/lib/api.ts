@@ -18,6 +18,7 @@ export const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 
 const browserDefaults: AppSettings = {
   folder_language: null,
+  folder_language_follows_ui: true,
   destination_root: DEMO_DESTINATION,
   folder_template: "{year}/{month}/{place}/{filename}",
   month_format: "number_name",

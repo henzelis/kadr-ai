@@ -9,7 +9,7 @@ import type { Note } from "$lib/types";
 export type Lang = "uk" | "en";
 const KEY = "kadr.lang";
 
-function systemLang(): Lang {
+export function systemLang(): Lang {
   const langs = typeof navigator === "undefined" ? [] : navigator.languages ?? [navigator.language];
   return langs.some((l) => /^(uk|ru|be)\b/i.test(l)) ? "uk" : "en";
 }
@@ -30,6 +30,11 @@ export function setLangChoice(choice: "auto" | Lang): void {
   } catch {
     // storage unavailable: the choice lasts until the window closes
   }
+}
+
+/** The language a stored choice resolves to. */
+export function resolveLang(choice: "auto" | Lang): Lang {
+  return choice === "auto" ? systemLang() : choice;
 }
 
 const choice = storedLangChoice();
