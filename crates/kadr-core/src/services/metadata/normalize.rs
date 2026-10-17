@@ -557,22 +557,31 @@ pub fn normalize(
     .find_map(|k| raw.f64(k))
     .filter(|d| d.is_finite() && *d > 0.0)
     .map(|d| (d * 1000.0).round() as u64);
+    let mut width = first_u32(
+        raw,
+        &["File:ImageWidth", "*:ImageWidth", "ExifIFD:ExifImageWidth"],
+    );
+    let mut height = first_u32(
+        raw,
+        &[
+            "File:ImageHeight",
+            "*:ImageHeight",
+            "ExifIFD:ExifImageHeight",
+        ],
+    );
+    // EXIF orientations 5..=8 turn the picture by 90°: report what is seen.
+    if raw
+        .f64("IFD0:Orientation")
+        .is_some_and(|o| (5.0..=8.0).contains(&o))
+    {
+        std::mem::swap(&mut width, &mut height);
+    }
     Normalized {
         captured,
         gps,
         place_text,
-        width: first_u32(
-            raw,
-            &["File:ImageWidth", "*:ImageWidth", "ExifIFD:ExifImageWidth"],
-        ),
-        height: first_u32(
-            raw,
-            &[
-                "File:ImageHeight",
-                "*:ImageHeight",
-                "ExifIFD:ExifImageHeight",
-            ],
-        ),
+        width,
+        height,
         duration_ms,
         video_codec: raw.str("FFprobe:VideoCodec").map(str::to_owned),
         audio_codec: raw.str("FFprobe:AudioCodec").map(str::to_owned),
@@ -845,6 +854,17 @@ mod tests {
         let n = normalize(&m, MediaKind::Photo, 0, None, &ctx(false));
         assert!(n.gps.is_none());
         assert_eq!(n.review_reasons.len(), 1);
+    }
+
+    #[test]
+    fn rotated_photos_report_displayed_size() {
+        let m = meta(&[
+            ("File:ImageWidth", json!(2400)),
+            ("File:ImageHeight", json!(1600)),
+            ("IFD0:Orientation", json!(6)),
+        ]);
+        let n = normalize(&m, MediaKind::Photo, 0, None, &ctx(false));
+        assert_eq!((n.width, n.height), (Some(1600), Some(2400)));
     }
 
     #[test]

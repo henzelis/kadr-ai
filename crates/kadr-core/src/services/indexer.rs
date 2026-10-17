@@ -29,7 +29,7 @@ use crate::persistence::media::{
 use crate::settings::AppSettings;
 
 /// Bump when normalization changes in a way that needs re-reading files.
-const PIPELINE_VERSION: u32 = 1;
+const PIPELINE_VERSION: u32 = 2;
 /// Files handed to one worker at a time (one ExifTool process per slice).
 const FILES_PER_WORKER: usize = 24;
 const HASH_BUFFER: usize = 1 << 20;

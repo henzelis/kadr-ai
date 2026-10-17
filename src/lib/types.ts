@@ -78,6 +78,7 @@ export type MetadataStatus = "not_read" | "read" | "partial" | "unavailable" | "
 export interface MediaView {
   id: number;
   path: string;
+  mtime: number;
   file_name: string;
   extension: string;
   kind: MediaKind;

@@ -31,6 +31,12 @@ pub async fn update_settings(
         previous
     };
     let stored = state.db()?.load_settings()?;
+    if previous.exiftool_path != stored.exiftool_path
+        || previous.ffprobe_path != stored.ffprobe_path
+        || previous.thumbnail_workers != stored.thumbnail_workers
+    {
+        state.rebuild_thumbnailer(&stored);
+    }
     if previous.affects_derivation(&stored) {
         if state.lock(&state.scan)?.is_some() {
             return Err(AppError::user(

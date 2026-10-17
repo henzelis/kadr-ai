@@ -1,7 +1,7 @@
 <script lang="ts">
   import { formatCaptured, formatCoords, formatDuration, formatSize } from "$lib/format";
   import { t } from "$lib/i18n/uk";
-  import { sceneSvg } from "$lib/scenes";
+  import Thumb from "./Thumb.svelte";
   import type { MediaView } from "$lib/types";
 
   let { item, count, demo, destination, onEdit }: {
@@ -27,7 +27,7 @@
     <p class="hint">{t.nothingSelected}</p>
   {:else}
     <div class="photo-preview">
-      {#if demo}{@html sceneSvg(item.id)}{:else}<div class="preview-placeholder">{item.extension.toUpperCase()}<small>{t.thumbsLater}</small></div>{/if}
+      <Thumb {item} size="preview" {demo} fit="contain" />
     </div>
     <div class="detail-filename">{item.file_name}</div>
     <div class="detail-path">{item.path}</div>
@@ -121,12 +121,7 @@
   .inspector-kicker { color: var(--muted); font-size: 10px; margin-top: 3px; }
   .hint { color: var(--muted); font-size: 11px; line-height: 1.5; }
   .photo-preview { aspect-ratio: 1.58 / 1; overflow: hidden; background: var(--surface-soft); border-radius: 10px; border: 1px solid var(--line); margin-bottom: 14px; }
-  .photo-preview :global(svg) { display: block; width: 100%; height: 100%; }
-  .preview-placeholder {
-    height: 100%; display: grid; place-content: center; text-align: center; gap: 6px; font-weight: 750;
-    color: var(--muted); letter-spacing: .06em; background: repeating-linear-gradient(135deg, var(--surface-soft) 0 12px, transparent 12px 24px);
-  }
-  .preview-placeholder small { font-weight: 500; letter-spacing: 0; font-size: 10px; }
+  .photo-preview { background: light-dark(#e9ebe5, #121612); }
   .problems { display: grid; gap: 8px; margin-top: 12px; }
   .problem { font-size: 10px; line-height: 1.45; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; }
   .problem strong { display: block; margin-bottom: 3px; font-size: 10px; }

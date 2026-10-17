@@ -168,6 +168,8 @@ pub struct MediaQuery {
 pub struct MediaRow {
     pub id: i64,
     pub path: String,
+    /// Modification time, ms; also busts cached thumbnails in the UI.
+    pub mtime: i64,
     pub file_name: String,
     pub extension: String,
     pub kind: MediaKind,
@@ -230,7 +232,7 @@ const ROW_COLUMNS: &str = "m.id, m.path, m.file_name, m.extension, m.media_kind,
     m.detected_type, m.width, m.height, m.duration_ms, m.video_codec, m.audio_codec, \
     m.captured_at_raw, m.captured_at_local, m.timezone_offset_min, m.date_source, m.date_status, m.date_note, \
     m.latitude, m.longitude, m.altitude, m.place_label, m.location_source, m.place_status, \
-    m.metadata_status, m.metadata_provider, m.review_reasons, m.warnings, m.last_error";
+    m.metadata_status, m.metadata_provider, m.review_reasons, m.warnings, m.last_error, m.mtime";
 
 fn json_list(s: Option<String>) -> Vec<String> {
     s.and_then(|s| serde_json::from_str(&s).ok())
@@ -284,6 +286,7 @@ fn read_row(r: &Row<'_>) -> rusqlite::Result<MediaRow> {
         review_reasons: json_list(r.get(27)?),
         warnings: json_list(r.get(28)?),
         last_error: r.get(29)?,
+        mtime: r.get(30)?,
     })
 }
 
@@ -538,6 +541,41 @@ impl Db {
                 &format!("SELECT {ROW_COLUMNS} FROM media_item m WHERE m.id = ?1"),
                 params![id],
                 read_row,
+            )
+            .optional()?)
+    }
+
+    /// Facts the thumbnailer needs for one item.
+    pub fn thumb_source(
+        &self,
+        id: i64,
+    ) -> CoreResult<Option<crate::services::thumbnail::ThumbSource>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT path, media_kind, extension, size_bytes, mtime, duration_ms, metadata_json
+                 FROM media_item WHERE id = ?1",
+                params![id],
+                |r| {
+                    let json: Option<String> = r.get(6)?;
+                    let orientation = json
+                        .and_then(|j| {
+                            serde_json::from_str::<crate::services::metadata::RawMetadata>(&j).ok()
+                        })
+                        .and_then(|m| m.f64("IFD0:Orientation"))
+                        .and_then(|o| u8::try_from(o as i64).ok());
+                    Ok(crate::services::thumbnail::ThumbSource {
+                        path: std::path::PathBuf::from(r.get::<_, String>(0)?),
+                        kind: enum_parse(&r.get::<_, String>(1)?).unwrap_or(MediaKind::Unsupported),
+                        extension: r.get(2)?,
+                        size_bytes: u64::try_from(r.get::<_, i64>(3)?).unwrap_or(0),
+                        mtime_ms: r.get(4)?,
+                        duration_ms: r
+                            .get::<_, Option<i64>>(5)?
+                            .and_then(|d| u64::try_from(d).ok()),
+                        orientation,
+                    })
+                },
             )
             .optional()?)
     }

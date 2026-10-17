@@ -61,6 +61,9 @@ fn to_tags(exif: &Exif) -> Tags {
             tags.insert(key.to_owned(), json!(v));
         }
     }
+    if let Some(o) = uint(field(Tag::Orientation)) {
+        tags.insert("IFD0:Orientation".to_owned(), json!(o));
+    }
     if let Some(w) = uint(field(Tag::PixelXDimension)) {
         tags.insert("ExifIFD:ExifImageWidth".to_owned(), json!(w));
     }

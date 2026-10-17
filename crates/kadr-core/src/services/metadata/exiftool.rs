@@ -38,6 +38,7 @@ const TAGS: &[&str] = &[
     "-ExifImageHeight",
     "-Duration",
     "-Rotation",
+    "-Orientation",
     "-Make",
     "-Model",
     "-Warning",

@@ -5,4 +5,5 @@ pub mod metadata;
 pub mod place;
 pub mod process;
 pub mod scanner;
+pub mod thumbnail;
 pub mod tools;

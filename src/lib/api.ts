@@ -2,7 +2,7 @@
 // `pnpm dev` in a browser, used for layout checks) an in-memory stand-in with
 // demo records answers instead, so the UI renders without a backend.
 
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { DEMO_DESTINATION, DEMO_SOURCE, demoMedia } from "./demo";
@@ -74,6 +74,13 @@ export async function getToolStatus(): Promise<ToolStatus[]> {
 export async function getLibrarySummary(): Promise<LibrarySummary | null> {
   if (!inTauri) return null;
   return invoke<LibrarySummary>("get_library_summary");
+}
+
+// ---------------------------------------------------------------- thumbnails
+
+/** Address of a cached thumbnail; the mtime makes a changed file reload. */
+export function thumbUrl(id: number, size: "grid" | "preview", mtime: number): string {
+  return `${convertFileSrc(`${id}.${size}`, "thumb")}?v=${mtime}`;
 }
 
 // ---------------------------------------------------------------- geobase

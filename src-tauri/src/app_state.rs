@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use kadr_core::persistence::Db;
 use kadr_core::services::geocoder::OfflineGeocoder;
-use kadr_core::services::indexer::ScanProgress;
+use kadr_core::services::indexer::{Helpers, ScanProgress};
+use kadr_core::services::thumbnail::Thumbnailer;
+use kadr_core::settings::AppSettings;
 
 use crate::errors::AppError;
 
@@ -26,6 +28,29 @@ pub struct AppState {
     pub geobase_path: PathBuf,
     /// ExifTool / FFmpeg shipped with the installer, if present.
     pub helpers_dir: Option<PathBuf>,
+    /// Thumbnail cache directory (app data).
+    pub thumbs_dir: PathBuf,
+    /// Built in the background at startup (probing helpers takes a moment).
+    thumbnailer: RwLock<Option<Arc<Thumbnailer>>>,
+}
+
+/// Thumbnailer wired to the helpers that are available now.
+pub fn build_thumbnailer(
+    thumbs_dir: &std::path::Path,
+    settings: &AppSettings,
+    helpers_dir: Option<&std::path::Path>,
+) -> Thumbnailer {
+    let (helpers, statuses) = Helpers::detect(settings, helpers_dir);
+    let exiftool = statuses
+        .iter()
+        .find(|s| s.tool == kadr_core::services::tools::Tool::Exiftool && s.version().is_some())
+        .map(|s| PathBuf::from(&s.program));
+    Thumbnailer::new(
+        thumbs_dir.to_path_buf(),
+        exiftool,
+        helpers.ffmpeg,
+        usize::from(settings.thumbnail_workers),
+    )
 }
 
 impl AppState {
@@ -35,6 +60,7 @@ impl AppState {
         geobase_path: PathBuf,
         geocoder: Option<OfflineGeocoder>,
         helpers_dir: Option<PathBuf>,
+        thumbs_dir: PathBuf,
     ) -> Self {
         Self {
             db: Mutex::new(db),
@@ -44,7 +70,32 @@ impl AppState {
             geocoder: RwLock::new(geocoder.map(Arc::new)),
             geobase_path,
             helpers_dir,
+            thumbs_dir,
+            thumbnailer: RwLock::new(None),
         }
+    }
+
+    /// The thumbnailer, building it now if startup has not finished yet.
+    pub fn thumbnailer(&self) -> Result<Arc<Thumbnailer>, AppError> {
+        if let Some(t) = self.thumbnailer.read().ok().and_then(|t| t.clone()) {
+            return Ok(t);
+        }
+        let settings = self.db()?.load_settings()?;
+        Ok(self.rebuild_thumbnailer(&settings))
+    }
+
+    /// Re-detects helpers (startup, settings change) and installs a fresh
+    /// thumbnailer.
+    pub fn rebuild_thumbnailer(&self, settings: &AppSettings) -> Arc<Thumbnailer> {
+        let fresh = Arc::new(build_thumbnailer(
+            &self.thumbs_dir,
+            settings,
+            self.helpers_dir.as_deref(),
+        ));
+        if let Ok(mut slot) = self.thumbnailer.write() {
+            *slot = Some(fresh.clone());
+        }
+        fresh
     }
 
     pub fn geocoder(&self) -> Option<Arc<OfflineGeocoder>> {
