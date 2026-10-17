@@ -393,3 +393,220 @@ impl Db {
         Ok(())
     }
 }
+
+/// One plan item as the runner sees it.
+#[derive(Debug, Clone)]
+pub struct RunItem {
+    pub id: i64,
+    pub media_id: Option<i64>,
+    pub parent_item_id: Option<i64>,
+    pub source: PathBuf,
+    pub destination: PathBuf,
+    pub expected_size: u64,
+    pub expected_mtime: i64,
+    pub sha256: Option<String>,
+    pub hash_after: Option<String>,
+    pub status: OperationStatus,
+}
+
+fn read_run_item(r: &Row<'_>) -> rusqlite::Result<RunItem> {
+    Ok(RunItem {
+        id: r.get(0)?,
+        media_id: r.get(1)?,
+        parent_item_id: r.get(2)?,
+        source: PathBuf::from(r.get::<_, String>(3)?),
+        destination: PathBuf::from(r.get::<_, String>(4)?),
+        expected_size: u(r.get(5)?),
+        expected_mtime: r.get(6)?,
+        sha256: r.get(7)?,
+        hash_after: r.get(8)?,
+        status: enum_parse(&r.get::<_, String>(9)?).unwrap_or(OperationStatus::Planned),
+    })
+}
+
+const RUN_COLUMNS: &str =
+    "id, media_id, parent_item_id, source_path, destination_path, expected_size,
+                           expected_mtime, hash_before, hash_after, status";
+
+/// One finished or running plan for the activity log.
+#[derive(Debug, Clone, Serialize)]
+pub struct RunSummary {
+    pub plan_id: i64,
+    pub created_at: i64,
+    pub destination_root: String,
+    pub mode: OperationMode,
+    pub state: String,
+    pub done: u64,
+    pub failed: u64,
+    pub undone: u64,
+    pub pending: u64,
+    pub bytes_done: u64,
+}
+
+impl Db {
+    pub fn plan_state(&self, plan_id: i64) -> CoreResult<Option<(String, OperationMode, String)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT state, mode, destination_root FROM operation_plan WHERE id = ?1",
+                params![plan_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        enum_parse(&r.get::<_, String>(1)?).unwrap_or_default(),
+                        r.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn set_plan_state(&self, plan_id: i64, state: &str) -> CoreResult<()> {
+        self.conn.execute(
+            "UPDATE operation_plan SET state = ?2 WHERE id = ?1",
+            params![plan_id, state],
+        )?;
+        Ok(())
+    }
+
+    /// Included items still to do (planned, failed or interrupted), in plan
+    /// order; companions come right after their main file.
+    pub fn pending_run_items(&self, plan_id: i64) -> CoreResult<Vec<RunItem>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM operation_item
+             WHERE plan_id = ?1 AND included = 1 AND status IN ('planned', 'failed', 'interrupted')
+             ORDER BY seq"
+        ))?;
+        let rows = stmt.query_map(params![plan_id], read_run_item)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Done items, newest first, for undo.
+    pub fn done_run_items(&self, plan_id: i64) -> CoreResult<Vec<RunItem>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM operation_item WHERE plan_id = ?1 AND status = 'done' ORDER BY seq DESC"
+        ))?;
+        let rows = stmt.query_map(params![plan_id], read_run_item)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn mark_item(
+        &self,
+        item_id: i64,
+        status: OperationStatus,
+        destination: Option<&std::path::Path>,
+        hash_after: Option<&str>,
+        note: Option<&Note>,
+    ) -> CoreResult<()> {
+        let now = now_ms();
+        self.conn.execute(
+            "UPDATE operation_item SET status = ?2,
+                destination_path = COALESCE(?3, destination_path),
+                hash_after = COALESCE(?4, hash_after),
+                error = ?5,
+                started_at = CASE WHEN ?2 = 'in_progress' THEN ?6 ELSE started_at END,
+                finished_at = CASE WHEN ?2 = 'in_progress' THEN NULL ELSE ?6 END
+             WHERE id = ?1",
+            params![
+                item_id,
+                enum_str(&status),
+                destination.map(|d| d.to_string_lossy().into_owned()),
+                hash_after,
+                note.map(Note::to_json),
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn log_event(
+        &self,
+        plan_id: i64,
+        item_id: Option<i64>,
+        event: &str,
+        detail: Option<&Note>,
+    ) -> CoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO operation_log (plan_id, item_id, at, event, detail) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![plan_id, item_id, now_ms(), event, detail.map(Note::to_json)],
+        )?;
+        Ok(())
+    }
+
+    /// After a crash or forced close: items that were in progress become
+    /// `interrupted` (retry continues them), running plans become `partial`.
+    pub fn recover_interrupted_runs(&self) -> CoreResult<Vec<RunItem>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM operation_item WHERE status = 'in_progress'"
+        ))?;
+        let items: Vec<RunItem> = stmt
+            .query_map([], read_run_item)?
+            .collect::<Result<_, _>>()?;
+        self.conn.execute(
+            "UPDATE operation_item SET status = 'interrupted' WHERE status = 'in_progress'",
+            [],
+        )?;
+        self.conn.execute(
+            "UPDATE operation_plan SET state = 'partial' WHERE state IN ('running', 'undoing')",
+            [],
+        )?;
+        Ok(items)
+    }
+
+    /// After a move the files no longer belong to the sources: their index
+    /// rows are dropped (the plan keeps the paths for undo).
+    pub fn forget_media(&mut self, ids: &[i64]) -> CoreResult<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM media_item WHERE id = ?1")?;
+            for id in ids {
+                stmt.execute(params![id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn run_summaries(&self) -> CoreResult<Vec<RunSummary>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.id, p.created_at, p.destination_root, p.mode, p.state,
+                    COALESCE(SUM(i.status = 'done'), 0), COALESCE(SUM(i.status = 'failed'), 0),
+                    COALESCE(SUM(i.status = 'undone'), 0),
+                    COALESCE(SUM(i.included = 1 AND i.status IN ('planned', 'interrupted')), 0),
+                    COALESCE(SUM(CASE WHEN i.status = 'done' THEN i.expected_size ELSE 0 END), 0)
+             FROM operation_plan p LEFT JOIN operation_item i ON i.plan_id = p.id
+             WHERE p.state <> 'draft' GROUP BY p.id ORDER BY p.id DESC LIMIT 50",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(RunSummary {
+                plan_id: r.get(0)?,
+                created_at: r.get(1)?,
+                destination_root: r.get(2)?,
+                mode: enum_parse(&r.get::<_, String>(3)?).unwrap_or_default(),
+                state: r.get(4)?,
+                done: u(r.get(5)?),
+                failed: u(r.get(6)?),
+                undone: u(r.get(7)?),
+                pending: u(r.get(8)?),
+                bytes_done: u(r.get(9)?),
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Failed items with their reason, for the log.
+    pub fn failed_items(&self, plan_id: i64) -> CoreResult<Vec<(String, String, Option<Note>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT source_path, destination_path, error FROM operation_item
+             WHERE plan_id = ?1 AND status = 'failed' ORDER BY seq LIMIT 500",
+        )?;
+        let rows = stmt.query_map(params![plan_id], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get::<_, Option<String>>(2)?.map(|n| Note::parse(&n)),
+            ))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}

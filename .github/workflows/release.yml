@@ -207,4 +207,6 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           ls -la dist
-          gh release create "$TAG" dist/* --title "Kadr ${TAG#v}" --notes-file .github/release-notes.md --latest --verify-tag
+          FILES=$(find dist -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" \))
+          echo "$FILES"
+          gh release create "$TAG" $FILES --title "Kadr ${TAG#v}" --notes-file .github/release-notes.md --latest --verify-tag

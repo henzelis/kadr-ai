@@ -3,6 +3,7 @@ pub mod detect;
 pub mod geocoder;
 pub mod indexer;
 pub mod metadata;
+pub mod operations;
 pub mod place;
 pub mod planner;
 pub mod process;
