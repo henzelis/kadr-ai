@@ -1,0 +1,84 @@
+name: Build FFmpeg for macOS and Linux
+
+# Run by hand when FFmpeg should be updated. Results go to a service release
+# (deps-ffmpeg-<version>) that the installer workflow downloads and checks.
+on:
+  workflow_dispatch:
+    inputs:
+      ffmpeg_version:
+        description: FFmpeg version
+        default: "8.1.3"
+      dav1d_version:
+        description: dav1d version
+        default: "1.5.4"
+
+permissions:
+  contents: write
+
+env:
+  FFMPEG_VERSION: ${{ inputs.ffmpeg_version }}
+  DAV1D_VERSION: ${{ inputs.dav1d_version }}
+  TAG: deps-ffmpeg-${{ inputs.ffmpeg_version }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  linux:
+    # Built on the oldest supported Ubuntu; the binaries are fully static.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y nasm meson ninja-build pkg-config zlib1g-dev
+      - run: scripts/build-ffmpeg.sh out
+      - name: Check the binaries
+        run: |
+          file out/ffmpeg | grep -q 'statically linked'
+          out/ffmpeg -hide_banner -buildconf | grep -q -- '--enable-libdav1d'
+          ! out/ffmpeg -hide_banner -buildconf | grep -q -- '--enable-gpl'
+      - run: tar -C out -cJf "ffmpeg-$FFMPEG_VERSION-kadr-linux-x86_64.tar.xz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-linux
+          path: ffmpeg-*-linux-x86_64.tar.xz
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install nasm meson ninja pkg-config
+      - run: scripts/build-ffmpeg.sh out-arm64 arm64
+      - run: scripts/build-ffmpeg.sh out-x86_64 x86_64
+      - name: Universal binaries (Apple Silicon + Intel)
+        run: |
+          mkdir out
+          for b in ffmpeg ffprobe; do
+            lipo -create out-arm64/$b out-x86_64/$b -output out/$b
+            codesign --force --sign - out/$b
+            lipo -info out/$b
+          done
+          cp out-arm64/LICENSE.txt out-arm64/README.txt out/
+          out/ffprobe -hide_banner -version | head -1
+          ! out/ffmpeg -hide_banner -buildconf | grep -q -- '--enable-gpl'
+      - run: tar -C out -cJf "ffmpeg-$FFMPEG_VERSION-kadr-macos-universal.tar.xz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-macos
+          path: ffmpeg-*-macos-universal.tar.xz
+
+  publish:
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Upload to the service release
+        run: |
+          sha256sum ffmpeg-*.tar.xz > SHA256SUMS-ffmpeg
+          cat SHA256SUMS-ffmpeg
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --latest=false \
+              --title "Службове: FFmpeg $FFMPEG_VERSION для macOS і Linux (не для встановлення)" \
+              --notes "FFmpeg $FFMPEG_VERSION (LGPL 2.1+, без GPL і nonfree) з dav1d $DAV1D_VERSION (BSD), зібраний scripts/build-ffmpeg.sh. Вихідний код: https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+          gh release upload "$TAG" ffmpeg-*.tar.xz SHA256SUMS-ffmpeg --clobber --repo "$GITHUB_REPOSITORY"

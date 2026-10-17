@@ -26,8 +26,59 @@ fn load_geocoder(app: &tauri::App, imported: &std::path::Path) -> Option<Offline
         })
 }
 
+/// `kadr --self-check <out.json>`: finds the bundled helpers and geobase the
+/// way the app does, writes what it found as JSON and exits — no window.
+/// Used by the installer smoke tests on every OS.
+fn self_check(package_info: &tauri::PackageInfo, out: Option<&str>) -> i32 {
+    use kadr_core::services::indexer::Helpers;
+    let resources = tauri::utils::platform::resource_dir(package_info, &tauri::Env::default()).ok();
+    let helpers_dir = resources.as_ref().map(|d| d.join("helpers")).filter(|d| d.is_dir());
+    let (_, tools) = Helpers::detect(&kadr_core::settings::AppSettings::default(), helpers_dir.as_deref());
+    let geobase = resources
+        .as_ref()
+        .map(|d| d.join(GEOBASE_FILE))
+        .filter(|p| p.is_file())
+        .map(|p| OfflineGeocoder::open(&p).map(|g| g.info().clone()).map_err(|e| e.to_string()));
+    let all_bundled = tools.iter().all(|t| {
+        matches!(
+            t.state,
+            kadr_core::services::tools::ToolState::Available {
+                source: kadr_core::services::tools::ToolSource::Bundled,
+                ..
+            }
+        )
+    });
+    let ok = all_bundled && matches!(geobase, Some(Ok(_)));
+    let report = serde_json::json!({
+        "ok": ok,
+        "resource_dir": resources,
+        "helpers_dir": helpers_dir,
+        "tools": tools,
+        "geobase": match &geobase {
+            Some(Ok(info)) => serde_json::json!(info),
+            Some(Err(e)) => serde_json::json!({ "error": e }),
+            None => serde_json::Value::Null,
+        },
+    });
+    let text = serde_json::to_string_pretty(&report).unwrap_or_default();
+    match out {
+        Some(path) => {
+            if std::fs::write(path, &text).is_err() {
+                return 2;
+            }
+        }
+        None => println!("{text}"),
+    }
+    i32::from(!ok)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--self-check") {
+        std::process::exit(self_check(context.package_info(), args.get(2).map(String::as_str)));
+    }
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .register_asynchronous_uri_scheme_protocol("thumb", thumbs::handle)
@@ -87,7 +138,7 @@ pub fn run() {
             commands::scan::cancel_scan,
             commands::scan::get_scan_status,
         ])
-        .run(tauri::generate_context!());
+        .run(context);
     if let Err(err) = result {
         eprintln!("kadr: failed to start: {err}");
         std::process::exit(1);
