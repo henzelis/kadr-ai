@@ -6,6 +6,8 @@ members = ["crates/kadr-core", "src-tauri"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/henzelis/kadr-ai"
 
 [workspace.dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }

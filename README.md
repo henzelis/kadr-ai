@@ -70,3 +70,7 @@ src/
   lib/components/  Titlebar, Sidebar, Gallery, Inspector, PlanPreview, SettingsDialog
   routes/          +page.svelte
 ```
+
+## Ліцензія
+
+MIT — див. [LICENSE](LICENSE). ExifTool і FFmpeg — окремі програми зі своїми ліцензіями; умови їх постачання разом із Kadr перевіряються перед релізом.
