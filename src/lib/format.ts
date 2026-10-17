@@ -98,6 +98,10 @@ export type MetaState = { label: string; tone: "ok" | "review" | "missing" };
 
 /** One badge per card: the most important problem, or "ok". */
 export function metaState(item: MediaView): MetaState {
+  if (item.metadata_status === "failed" || item.metadata_status === "unavailable" || item.metadata_status === "partial") {
+    return { label: t.metadataStatus[item.metadata_status], tone: "review" };
+  }
+  if (item.review_reasons.length > 0) return { label: t.state.review, tone: "review" };
   if (!item.captured) return { label: t.state.noDate, tone: "missing" };
   if (item.captured.status === "needs_review") return { label: t.state.review, tone: "review" };
   if (item.captured.status === "file_system_fallback") return { label: t.state.fsDate, tone: "review" };

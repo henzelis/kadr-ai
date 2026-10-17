@@ -19,6 +19,7 @@ tauri-build = { version = "2.6", features = [] }
 [dependencies]
 kadr-core = { path = "../crates/kadr-core" }
 tauri = { version = "2.12", features = [] }
+tauri-plugin-dialog = "2.7"
 serde.workspace = true
 serde_json.workspace = true
 

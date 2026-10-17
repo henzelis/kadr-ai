@@ -1,0 +1,15 @@
+[package]
+name = "kadr-geobase"
+description = "Builds Kadr's offline geobase from GeoNames dumps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+kadr-core = { path = "../kadr-core" }
+
+[lints]
+workspace = true

@@ -16,6 +16,9 @@ pub enum CoreError {
     #[error("invalid setting `{field}`: {reason}")]
     InvalidSetting { field: &'static str, reason: String },
 
+    #[error("invalid geobase: {0}")]
+    InvalidGeobase(String),
+
     #[error("database schema version {found} is newer than this build supports ({supported})")]
     SchemaTooNew { found: i64, supported: i64 },
 }

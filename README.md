@@ -4,8 +4,10 @@
 за схемою `Рік / Місяць / Місце`. Усе працює локально: файли й координати
 нікуди не надсилаються, мережа вимкнена.
 
-> **Стан: етап A (каркас).** Галерея показує демонстраційні записи; реальне
-> сканування, метадані, план і файлові операції з'являться на наступних етапах.
+> **Стан: етап B (індекс і метадані).** Kadr сканує вибрані папки, читає дати й
+> GPS (ExifTool, FFprobe або вбудований EXIF-читач), визначає місто чи область за
+> офлайн-геобазою і показує файли, що потребують перевірки. Мініатюри — етап C,
+> план сортування — етап D, копіювання/переміщення — етап E.
 
 ## Стек
 
@@ -48,6 +50,27 @@ pnpm check && pnpm build
 
 Ті самі перевірки запускає CI на Linux і Windows.
 
+## Офлайн-геобаза
+
+Назви міст і областей визначаються локально, без мережі, за файлом
+`geobase.sqlite3`, зібраним з даних [GeoNames](https://www.geonames.org/)
+(ліцензія CC BY 4.0). Встановлення: **Налаштування → Офлайн-геобаза → Вибрати
+файл геобази…**
+
+Зібрати файл самостійно:
+
+```sh
+mkdir geonames && cd geonames
+for f in cities1000.zip alternateNamesV2.zip admin1CodesASCII.txt countryInfo.txt; do
+  curl -fLO https://download.geonames.org/export/dump/$f
+done
+unzip cities1000.zip && unzip alternateNamesV2.zip
+cd .. && cargo run --release -p kadr-geobase -- geonames geobase.sqlite3 geonames-$(date +%F)
+```
+
+Результат — близько 8,5 МБ, ~160 тис. населених пунктів з населенням від 1000,
+українські назви там, де вони є в GeoNames.
+
 ## Дані
 
 Індекс зберігається в каталозі даних застосунку (`kadr.sqlite3`), ніколи — поруч
@@ -60,11 +83,13 @@ pnpm check && pnpm build
 crates/kadr-core/src/
   domain/          media_item, captured_date, location, sort_template, operation
   persistence/     db.rs, migrations/0001_init.sql
-  services/        tools.rs (виявлення ExifTool / FFprobe)
+  services/        scanner, detect, metadata/ (exiftool, ffprobe, native_image,
+                   normalize), place, geocoder, indexer, process, tools
   settings.rs      налаштування з перевіркою
 src-tauri/src/
-  commands/        settings.rs, library.rs
+  commands/        settings, library, sources, scan, geobase
   app_state.rs, errors.rs, lib.rs
+crates/kadr-geobase/   збирач геобази з дампів GeoNames
 src/
   lib/             api.ts, types.ts, format.ts, demo.ts, i18n/uk.ts
   lib/components/  Titlebar, Sidebar, Gallery, Inspector, PlanPreview, SettingsDialog

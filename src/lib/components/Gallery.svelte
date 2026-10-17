@@ -4,20 +4,22 @@
   import { sceneSvg } from "$lib/scenes";
   import type { MediaView } from "$lib/types";
 
-  export type KindFilter = "all" | "photo" | "video";
-  export type SortKey = "date" | "name" | "size";
+  import type { KindFilter, SortKey } from "$lib/types";
 
   let {
-    items, total, selected, kind = $bindable(), query = $bindable(), sort = $bindable(), title, onPick,
+    items, total, demo, scanning = false, selected, kind = $bindable(), query = $bindable(), sort = $bindable(), title, onPick, onMore,
   }: {
     items: MediaView[];
     total: number;
+    demo: boolean;
+    scanning?: boolean;
     selected: Set<number>;
     kind: KindFilter;
     query: string;
     sort: SortKey;
     title: string;
     onPick: (id: number, additive: boolean) => void;
+    onMore: () => void;
   } = $props();
 
   function pick(event: MouseEvent | KeyboardEvent, id: number) {
@@ -55,8 +57,15 @@
       <button class="media-card" class:selected={selected.has(item.id)} aria-pressed={selected.has(item.id)}
         onclick={(e) => pick(e, item.id)}>
         <div class="media-visual">
-          <!-- generated placeholder artwork, no user content -->
-          {@html sceneSvg(item.scene)}
+          {#if demo}
+            <!-- generated placeholder artwork, no user content -->
+            {@html sceneSvg(item.id)}
+          {:else}
+            <div class="thumb-placeholder" title={t.thumbsLater}>
+              <span class="thumb-icon" aria-hidden="true">{item.kind === "video" ? "▶" : "▣"}</span>
+              <span class="thumb-ext">{item.extension.toUpperCase() || "?"}</span>
+            </div>
+          {/if}
           <span class="kind-badge"><span class="tiny-dot"></span>{t.kindBadge[item.kind]}</span>
           <span class="selection-check" aria-hidden="true">✓</span>
           {#if item.duration_ms !== null}<span class="duration">{formatDuration(item.duration_ms)}</span>{/if}
@@ -77,9 +86,16 @@
         </div>
       </button>
     {:else}
-      <div class="empty-state"><strong>{t.nothingFound}</strong>{t.nothingFoundHint}</div>
+      {#if scanning && !query}
+        <div class="empty-state"><strong>{t.scanning}</strong>{t.scanningHint}</div>
+      {:else}
+        <div class="empty-state"><strong>{t.nothingFound}</strong>{t.nothingFoundHint}</div>
+      {/if}
     {/each}
   </div>
+  {#if items.length < total}
+    <div class="more"><button class="secondary" onclick={onMore}>{t.showMore(total - items.length)}</button></div>
+  {/if}
 </section>
 
 <style>
@@ -103,6 +119,13 @@
   .media-card:hover { border-color: light-dark(#bdcbb5, #50644f); transform: translateY(-1px); box-shadow: var(--shadow); }
   .media-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
   .media-visual { position: relative; aspect-ratio: 1.52 / 1; overflow: hidden; background: var(--surface-soft); }
+  .thumb-placeholder {
+    width: 100%; height: 100%; display: grid; place-content: center; justify-items: center; gap: 6px;
+    color: var(--muted); background: repeating-linear-gradient(135deg, var(--surface-soft) 0 12px, transparent 12px 24px);
+  }
+  .thumb-icon { font-size: 24px; opacity: .6; }
+  .thumb-ext { font-size: 11px; font-weight: 750; letter-spacing: .06em; }
+  .more { display: flex; justify-content: center; margin-top: 16px; }
   .media-visual :global(svg) { display: block; width: 100%; height: 100%; }
   .kind-badge {
     position: absolute; top: 8px; left: 8px; padding: 5px 7px; display: flex; gap: 5px; align-items: center;

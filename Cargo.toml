@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/kadr-core", "src-tauri"]
+members = ["crates/kadr-core", "crates/kadr-geobase", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

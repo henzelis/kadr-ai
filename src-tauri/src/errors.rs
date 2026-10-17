@@ -13,6 +13,15 @@ pub struct AppError {
 }
 
 impl AppError {
+    /// A problem the user can act on; the message is shown as is.
+    pub fn user(code: &'static str, message: &str) -> Self {
+        Self {
+            code,
+            message: message.to_owned(),
+            field: None,
+        }
+    }
+
     pub fn internal(detail: &str) -> Self {
         eprintln!("kadr: internal error: {detail}");
         Self {

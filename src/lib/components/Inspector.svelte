@@ -4,8 +4,9 @@
   import { sceneSvg } from "$lib/scenes";
   import type { MediaView } from "$lib/types";
 
-  let { item, count, destination, onEdit }: {
+  let { item, count, demo, destination, onEdit }: {
     item: MediaView | null;
+    demo: boolean;
     count: number;
     destination: string | null;
     onEdit: () => void;
@@ -25,9 +26,27 @@
   {:else if !item}
     <p class="hint">{t.nothingSelected}</p>
   {:else}
-    <div class="photo-preview">{@html sceneSvg(item.scene)}</div>
+    <div class="photo-preview">
+      {#if demo}{@html sceneSvg(item.id)}{:else}<div class="preview-placeholder">{item.extension.toUpperCase()}<small>{t.thumbsLater}</small></div>{/if}
+    </div>
     <div class="detail-filename">{item.file_name}</div>
     <div class="detail-path">{item.path}</div>
+
+    {#if item.review_reasons.length || item.last_error || item.warnings.length}
+      <div class="problems">
+        {#if item.last_error}
+          <div class="problem error"><strong>{t.readError}</strong>{item.last_error}</div>
+        {/if}
+        {#if item.review_reasons.length}
+          <div class="problem review"><strong>{t.reviewReasons}</strong>
+            <ul>{#each item.review_reasons as reason, i (i)}<li>{reason}</li>{/each}</ul></div>
+        {/if}
+        {#if item.warnings.length}
+          <div class="problem info"><strong>{t.warnings}</strong>
+            <ul>{#each item.warnings as warning, i (i)}<li>{warning}</li>{/each}</ul></div>
+        {/if}
+      </div>
+    {/if}
 
     <div class="detail-section">
       <div class="detail-section-title"><span>{t.dateAndTime}</span>
@@ -65,7 +84,10 @@
 
     <div class="detail-section">
       <div class="detail-section-title"><span>{t.file}</span></div>
-      <div class="detail-row"><div class="detail-label">{t.format}</div><div class="detail-value">{item.extension.toUpperCase()} · {kindLabel[item.kind]}</div></div>
+      <div class="detail-row"><div class="detail-label">{t.format}</div><div class="detail-value">{item.extension.toUpperCase() || "—"} · {kindLabel[item.kind]}</div></div>
+      {#if item.detected_type && item.warnings.some((w) => w.startsWith("Розширення"))}
+        <div class="detail-row"><div class="detail-label">{t.detectedType}</div><div class="detail-value">{item.detected_type}</div></div>
+      {/if}
       <div class="detail-row"><div class="detail-label">{t.size}</div><div class="detail-value">{formatSize(item.size_bytes)}</div></div>
       {#if item.width && item.height}
         <div class="detail-row"><div class="detail-label">{t.resolution}</div><div class="detail-value">{item.width} × {item.height}</div></div>
@@ -75,9 +97,11 @@
       {/if}
       <div class="detail-row"><div class="detail-label">SHA-256</div>
         <div class="detail-value mono small">{item.sha256 ? `${item.sha256.slice(0, 8)}…${item.sha256.slice(-4)}` : "—"}</div></div>
-      {#if item.sidecars.length}
-        <div class="detail-row"><div class="detail-label">{t.sidecars}</div><div class="detail-value">{item.sidecars.join(", ")}</div></div>
+      {#if item.video_codec || item.audio_codec}
+        <div class="detail-row"><div class="detail-label">{t.codecs}</div><div class="detail-value">{[item.video_codec, item.audio_codec].filter(Boolean).join(" · ")}</div></div>
       {/if}
+      <div class="detail-row"><div class="detail-label">{t.metadataBy}</div>
+        <div class="detail-value">{t.metadataStatus[item.metadata_status]}{item.metadata_provider && !demo ? ` · ${item.metadata_provider.split("|").filter((p) => p !== "-" && !/^[ph]\d/.test(p)).join(", ")}` : ""}</div></div>
     </div>
 
     {#if destination}
@@ -98,6 +122,18 @@
   .hint { color: var(--muted); font-size: 11px; line-height: 1.5; }
   .photo-preview { aspect-ratio: 1.58 / 1; overflow: hidden; background: var(--surface-soft); border-radius: 10px; border: 1px solid var(--line); margin-bottom: 14px; }
   .photo-preview :global(svg) { display: block; width: 100%; height: 100%; }
+  .preview-placeholder {
+    height: 100%; display: grid; place-content: center; text-align: center; gap: 6px; font-weight: 750;
+    color: var(--muted); letter-spacing: .06em; background: repeating-linear-gradient(135deg, var(--surface-soft) 0 12px, transparent 12px 24px);
+  }
+  .preview-placeholder small { font-weight: 500; letter-spacing: 0; font-size: 10px; }
+  .problems { display: grid; gap: 8px; margin-top: 12px; }
+  .problem { font-size: 10px; line-height: 1.45; border-radius: 8px; padding: 8px 10px; overflow-wrap: anywhere; }
+  .problem strong { display: block; margin-bottom: 3px; font-size: 10px; }
+  .problem ul { margin: 0; padding-left: 16px; }
+  .problem.error { background: var(--red-soft); color: var(--red); }
+  .problem.review { background: var(--amber-soft); color: var(--amber); }
+  .problem.info { background: var(--surface-soft); color: var(--muted); }
   .detail-filename { font-weight: 750; font-size: 13px; overflow-wrap: anywhere; }
   .detail-path { margin-top: 5px; font-size: 10px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
   .detail-section { padding: 15px 0 13px; border-bottom: 1px solid var(--line); }

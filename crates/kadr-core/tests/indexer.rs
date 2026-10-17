@@ -197,6 +197,7 @@ fn full_scan_with_helpers_reads_dates_gps_and_video() {
     assert!(names(LibrarySection::NoDate).contains(&"no_metadata.png".to_owned()));
     assert!(!names(LibrarySection::NoDate).contains(&"exif_full.jpg".to_owned()));
     assert!(names(LibrarySection::Review).contains(&"gps_zero.jpg".to_owned()));
+    assert!(names(LibrarySection::Review).contains(&"corrupt.jpg".to_owned()));
     assert_eq!(
         names(LibrarySection::Duplicates),
         ["no_metadata.png", "png_named_as.jpg"]
@@ -351,4 +352,57 @@ fn symlink_loop_in_library_is_skipped() {
     let p = scan(&mut e, &Helpers::default());
     assert_eq!(p.phase, ScanPhase::Done);
     assert_eq!(all(&e.db, LibrarySection::All).len(), 12);
+}
+
+#[test]
+fn offline_geobase_names_places_with_city_then_region() {
+    use kadr_core::domain::location::{LocationSource, PlaceGranularity};
+    use kadr_core::services::geocoder::{GeobaseWriter, OfflineGeocoder};
+
+    let mut e = env();
+    let geo_path = e._tmp.path().join("geo.sqlite3");
+    let w = GeobaseWriter::create(&geo_path, "test", "test").unwrap();
+    w.country("UA", "Україна").unwrap();
+    w.admin1("UA.06", "Івано-Франківська область").unwrap();
+    w.place(1, 48.44886, 24.55335, "Яремче", "UA", Some("UA.06"), 8094)
+        .unwrap();
+    w.finish().unwrap();
+    let geo = OfflineGeocoder::open(&geo_path).unwrap();
+
+    let roots = vec![e.root.clone()];
+    let req = ScanRequest {
+        roots: &roots,
+        settings: &e.settings,
+        exclude: vec![],
+    };
+    run_scan(
+        &mut e.db,
+        &req,
+        &Helpers::default(),
+        Some(&geo),
+        &AtomicBool::new(false),
+        &mut |_| {},
+    )
+    .unwrap();
+    let rows = all(&e.db, LibrarySection::All);
+    let full = by_name(&rows, "exif_full.jpg");
+    assert_eq!(
+        (full.place_label.as_deref(), full.place_status),
+        (Some("Яремче"), PlaceStatus::Resolved)
+    );
+    assert_eq!(full.location_source, LocationSource::OfflineGeocoder);
+    // Far from any town in the geobase: region (like iPhone), never a guess.
+    assert_eq!(
+        by_name(&rows, "southwest.jpg").place_status,
+        PlaceStatus::GpsNoPlace
+    );
+
+    // Switching to region level recomputes without reading files.
+    e.settings.place_granularity = PlaceGranularity::Region;
+    renormalize(&mut e.db, &e.settings, Some(&geo)).unwrap();
+    let rows = all(&e.db, LibrarySection::All);
+    assert_eq!(
+        by_name(&rows, "exif_full.jpg").place_label.as_deref(),
+        Some("Івано-Франківська область")
+    );
 }

@@ -111,6 +111,19 @@ pub fn search_text(
     format!("{file_name}\n{path}\n{}\n{date}", place.unwrap_or_default()).to_lowercase()
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct LastScan {
+    pub job_id: i64,
+    pub finished_at: i64,
+    /// `done`, `cancelled` or `interrupted`.
+    pub state: String,
+    pub found: u64,
+    pub processed: u64,
+    pub unchanged: u64,
+    pub skipped: u64,
+    pub errors: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LibrarySection {
@@ -196,7 +209,7 @@ pub struct SectionCounts {
 }
 
 const VISIBLE: &str = "m.is_sidecar = 0 AND m.is_missing = 0";
-const REVIEW: &str = "(m.review_reasons <> '[]' OR m.metadata_status IN ('failed', 'unavailable') \
+const REVIEW: &str = "(m.review_reasons <> '[]' OR m.metadata_status IN ('failed', 'unavailable', 'partial') \
                       OR m.date_status IN ('needs_review', 'file_system_fallback'))";
 const NO_DATE: &str = "m.captured_at_local IS NULL";
 const NO_GPS: &str = "m.place_status <> 'resolved'";
@@ -366,6 +379,31 @@ impl Db {
             params![id, state, now_ms(), error_detail],
         )?;
         Ok(())
+    }
+
+    /// The most recent finished scan, for "last updated" in the UI.
+    pub fn last_scan(&self) -> CoreResult<Option<LastScan>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id, finished_at, state, found, processed, unchanged, skipped, errors FROM scan_job
+                 WHERE finished_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+                [],
+                |r| {
+                    let n = |i: usize| r.get::<_, i64>(i).map(|v| u64::try_from(v).unwrap_or(0));
+                    Ok(LastScan {
+                        job_id: r.get(0)?,
+                        finished_at: r.get(1)?,
+                        state: r.get(2)?,
+                        found: n(3)?,
+                        processed: n(4)?,
+                        unchanged: n(5)?,
+                        skipped: n(6)?,
+                        errors: n(7)?,
+                    })
+                },
+            )
+            .optional()?)
     }
 
     /// Jobs still marked running belong to a session that crashed or was closed.

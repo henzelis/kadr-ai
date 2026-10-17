@@ -8,6 +8,7 @@ export type Theme = "system" | "light" | "dark";
 export type OperationMode = "copy" | "move";
 
 export interface AppSettings {
+  destination_root: string | null;
   folder_template: string;
   month_format: MonthFormat;
   unknown_date_label: string;
@@ -20,6 +21,7 @@ export interface AppSettings {
   conflict_policy: ConflictPolicy;
   follow_symlinks: boolean;
   skip_system_dirs: boolean;
+  compute_hashes: boolean;
   metadata_workers: number;
   thumbnail_workers: number;
   exiftool_path: string | null;
@@ -68,7 +70,9 @@ export interface GeoPoint {
   altitude: number | null;
 }
 
-/** Library item as the UI shows it. Demo data uses the same shape. */
+export type MetadataStatus = "not_read" | "read" | "partial" | "unavailable" | "failed";
+
+/** Library item as returned by `query_media` (Rust `MediaRow`). */
 export interface MediaView {
   id: number;
   path: string;
@@ -77,14 +81,100 @@ export interface MediaView {
   kind: MediaKind;
   size_bytes: number;
   sha256: string | null;
+  detected_type: string | null;
   width: number | null;
   height: number | null;
   duration_ms: number | null;
+  video_codec: string | null;
+  audio_codec: string | null;
   captured: CapturedDate | null;
   gps: GeoPoint | null;
   place_label: string | null;
   location_source: LocationSource;
   place_status: PlaceStatus;
-  sidecars: string[];
-  scene: number;
+  metadata_status: MetadataStatus;
+  metadata_provider: string | null;
+  review_reasons: string[];
+  warnings: string[];
+  last_error: string | null;
+}
+
+export type LibrarySection = "all" | "review" | "no_date" | "no_gps" | "duplicates";
+export type KindFilter = "all" | "photo" | "video";
+export type SortKey = "date" | "name" | "size";
+
+export interface MediaQuery {
+  section: LibrarySection;
+  kind: KindFilter;
+  search: string;
+  sort: SortKey;
+  offset: number;
+  limit: number;
+}
+
+export interface MediaPage {
+  items: MediaView[];
+  total: number;
+}
+
+export interface SectionCounts {
+  all: number;
+  review: number;
+  nodate: number;
+  nogps: number;
+  duplicates: number;
+  with_date: number;
+  with_gps: number;
+}
+
+export interface SourceRoot {
+  id: number;
+  path: string;
+  added_at: number;
+  is_available: boolean;
+}
+
+export interface Folders {
+  sources: SourceRoot[];
+  destination: string | null;
+  destination_inside_source: boolean;
+}
+
+export type ScanPhase = "walking" | "reading" | "done" | "cancelled";
+
+export interface ScanProgress {
+  job_id: number;
+  phase: ScanPhase;
+  root: string | null;
+  found: number;
+  processed: number;
+  unchanged: number;
+  skipped: number;
+  errors: number;
+  pending: number;
+  current: string | null;
+}
+
+export interface LastScan {
+  job_id: number;
+  finished_at: number;
+  state: "done" | "cancelled" | "interrupted";
+  found: number;
+  processed: number;
+  unchanged: number;
+  skipped: number;
+  errors: number;
+}
+
+export interface ScanStatus {
+  running: boolean;
+  progress: ScanProgress | null;
+  last: LastScan | null;
+}
+
+export interface GeobaseInfo {
+  version: string;
+  source: string;
+  places: number;
+  built_at: string;
 }

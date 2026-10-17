@@ -27,6 +27,8 @@ pub enum Theme {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppSettings {
+    /// Root of the sorted archive. Never scanned as a source.
+    pub destination_root: Option<String>,
     pub folder_template: String,
     pub month_format: MonthFormat,
     pub unknown_date_label: String,
@@ -59,6 +61,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
+            destination_root: None,
             folder_template: DEFAULT_TEMPLATE.to_owned(),
             month_format: MonthFormat::default(),
             unknown_date_label: "Невідома дата".to_owned(),
@@ -82,6 +85,15 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Whether going from `self` to `next` changes dates or places that are
+    /// derived from stored metadata, so the index must be re-normalized.
+    pub fn affects_derivation(&self, next: &Self) -> bool {
+        self.filesystem_date_fallback != next.filesystem_date_fallback
+            || self.place_granularity != next.place_granularity
+            || self.coordinates_as_place != next.coordinates_as_place
+            || self.offline_geocoding != next.offline_geocoding
+    }
+
     /// Rejects values that would produce unsafe or nonsensical folders.
     /// Full template validation comes with the template parser (stage D).
     pub fn validate(&self) -> CoreResult<()> {

@@ -1,27 +1,51 @@
 <script lang="ts">
-  import { errorMessage, getToolStatus, inTauri, isAppError, updateSettings } from "$lib/api";
+  import { errorMessage, getGeobaseStatus, getToolStatus, inTauri, isAppError, pickGeobaseFile, updateSettings } from "$lib/api";
+  import { formatCount } from "$lib/format";
   import { t } from "$lib/i18n/uk";
-  import type { AppSettings, ToolStatus } from "$lib/types";
+  import type { AppSettings, GeobaseInfo, ToolStatus } from "$lib/types";
 
-  let { settings, onClose, onSaved }: {
+  let { settings, onClose, onSaved, onLibraryChanged }: {
     settings: AppSettings;
     onClose: () => void;
+    onLibraryChanged: () => void;
     onSaved: (s: AppSettings) => void;
   } = $props();
 
   // Edit a copy taken once on open; stored settings change only after Rust accepts them.
   // svelte-ignore state_referenced_locally
   let draft: AppSettings = $state(structuredClone($state.snapshot(settings)));
-  let tools: ToolStatus[] | null = $state(null);
-  let error: string | null = $state(null);
-  let errorField: string | null = $state(null);
+  let tools = $state<ToolStatus[] | null>(null);
+  let geobase = $state<GeobaseInfo | null>(null);
+  let importing = $state(false);
+  let notice = $state<string | null>(null);
+  let error = $state<string | null>(null);
+  let errorField = $state<string | null>(null);
   let saving = $state(false);
   let dialog: HTMLDialogElement | undefined = $state();
 
   $effect(() => {
     dialog?.showModal();
     void recheck();
+    void getGeobaseStatus().then((g) => (geobase = g)).catch(() => {});
   });
+
+  async function chooseGeobase() {
+    importing = true;
+    error = null;
+    notice = null;
+    try {
+      const info = await pickGeobaseFile();
+      if (info) {
+        geobase = info;
+        notice = t.settingsDialog.geobaseImported;
+        onLibraryChanged();
+      }
+    } catch (e) {
+      error = errorMessage(e);
+    } finally {
+      importing = false;
+    }
+  }
 
   async function recheck() {
     tools = null;
@@ -111,6 +135,8 @@
       <legend>{t.settingsDialog.scanning}</legend>
       <label class="check"><input type="checkbox" bind:checked={draft.skip_system_dirs} />
         <span><strong>{t.settingsDialog.skipSystem}</strong></span></label>
+      <label class="check"><input type="checkbox" bind:checked={draft.compute_hashes} />
+        <span><strong>{t.settingsDialog.computeHashes}</strong><br />{t.settingsDialog.computeHashesHint}</span></label>
       <label class="check"><input type="checkbox" bind:checked={draft.follow_symlinks} />
         <span><strong>{t.settingsDialog.followSymlinks}</strong><br />{t.settingsDialog.followSymlinksHint}</span></label>
       <div class="grid">
@@ -149,6 +175,20 @@
           <input bind:value={draft.ffprobe_path} placeholder={t.settingsDialog.pathPlaceholder} /></label>
       </div>
       <button type="button" class="secondary" onclick={recheck}>↻ {t.settingsDialog.recheck}</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>{t.settingsDialog.geobase}</legend>
+      {#if geobase}
+        <div class="tool"><span class="chip">✓ {t.settingsDialog.geobaseInfo(formatCount(geobase.places), geobase.version)}</span></div>
+      {:else}
+        <div class="hint">{t.settingsDialog.geobaseNone}</div>
+      {/if}
+      <div class="hint attribution">{t.settingsDialog.geobaseAttribution}</div>
+      {#if notice}<div class="notice" role="status">{notice}</div>{/if}
+      <button type="button" class="secondary" disabled={importing || !inTauri} onclick={chooseGeobase}>
+        {importing ? t.settingsDialog.geobaseImporting : geobase ? t.settingsDialog.geobaseReplace : t.settingsDialog.geobaseChoose}
+      </button>
     </fieldset>
 
     <fieldset>
@@ -196,6 +236,8 @@
   .check input { accent-color: var(--accent); margin-top: 3px; }
   .tools { display: grid; gap: 6px; margin: 6px 0 4px; }
   .tool { display: flex; gap: 10px; align-items: center; font-size: 12px; }
+  .attribution { margin: 6px 0 10px; }
+  .notice { font-size: 11px; color: var(--accent-strong); background: var(--accent-soft); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
   .error { margin-top: 14px; font-size: 11px; color: var(--red); background: var(--red-soft); border-radius: 8px; padding: 9px 11px; }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 </style>

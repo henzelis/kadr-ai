@@ -10,15 +10,36 @@ pub fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, AppError>
     Ok(state.db()?.load_settings()?)
 }
 
-/// Validates and stores the settings, returning what was stored.
+/// Validates and stores the settings, returning what was stored. When a
+/// change affects derived dates or places, the index is recomputed from the
+/// stored metadata (no file is read).
 #[tauri::command]
-pub fn update_settings(
+pub async fn update_settings(
     state: State<'_, AppState>,
     settings: AppSettings,
 ) -> Result<AppSettings, AppError> {
-    let db = state.db()?;
-    db.save_settings(&settings)?;
-    Ok(db.load_settings()?)
+    let previous = {
+        let db = state.db()?;
+        let previous = db.load_settings()?;
+        // The destination is chosen through its own validated command.
+        let settings = AppSettings {
+            destination_root: previous.destination_root.clone(),
+            ..settings
+        };
+        db.save_settings(&settings)?;
+        previous
+    };
+    let stored = state.db()?.load_settings()?;
+    if previous.affects_derivation(&stored) {
+        if state.lock(&state.scan)?.is_some() {
+            return Err(AppError::user(
+                "scan_running",
+                "Налаштування збережено; файли буде оновлено після завершення сканування.",
+            ));
+        }
+        crate::commands::geobase::renormalize_in_background(&state, stored.clone()).await?;
+    }
+    Ok(stored)
 }
 
 /// Probes ExifTool and FFprobe. Runs off the main thread: a hung helper

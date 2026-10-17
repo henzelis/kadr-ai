@@ -23,7 +23,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
-            libayatana-appindicator3-dev librsvg2-dev
+            libayatana-appindicator3-dev librsvg2-dev libimage-exiftool-perl ffmpeg
+
+      - name: Windows metadata helpers (ExifTool, FFprobe)
+        if: runner.os == 'Windows'
+        run: choco install -y --no-progress exiftool ffmpeg
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -49,4 +53,12 @@ jobs:
       - name: Rust lint
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --workspace -- --nocapture
+        # Helper-based tests print a NOTICE and pass when a helper is missing;
+        # fail CI instead, so they really run on both systems.
+      - name: Helper-based tests really ran
+        shell: bash
+        run: |
+          if cargo test -p kadr-core --test indexer -- --nocapture 2>&1 | grep -q NOTICE; then
+            echo "ExifTool/FFprobe not found on PATH"; exit 1
+          fi
