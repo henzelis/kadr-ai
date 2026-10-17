@@ -3,7 +3,9 @@ name: Windows installer
 on:
   push:
     branches: [main]
-    # A tag like v0.1.0 or v0.1.0-preview.1 also publishes a GitHub release.
+    # A tag like v0.1.0 or v0.1.0-preview.2 also publishes a GitHub release
+    # and marks it Latest, so the Releases page always leads to the newest
+    # installer (service releases with dependencies are pre-releases).
     tags: ["v*"]
   workflow_dispatch:
 
@@ -99,7 +101,6 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           FILE=$(ls target/release/bundle/nsis/*.exe)
-          PRE=""; [[ "$TAG" == *-* ]] && PRE="--prerelease"
           cat > notes.md <<'NOTES'
           ## Kadr для Windows 10/11
 
@@ -113,4 +114,4 @@ jobs:
           Kadr працює лише з файлами на вашому комп'ютері й нічого не надсилає в інтернет.
           Сторонні компоненти та їхні ліцензії — у файлі THIRD_PARTY_NOTICES.md у теці програми.
           NOTES
-          gh release create "$TAG" "$FILE" --title "Kadr ${TAG#v}" --notes-file notes.md $PRE --verify-tag
+          gh release create "$TAG" "$FILE" --title "Kadr ${TAG#v}" --notes-file notes.md --latest --verify-tag
